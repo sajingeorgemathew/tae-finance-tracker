@@ -1,0 +1,400 @@
+TICKET: FINANCE-BOOTSTRAP-00
+BRANCH: feature/finance-bootstrap-00
+
+We are creating an internal finance tracking web application for Toronto Academy of Education.
+
+IMPORTANT:
+The project directory already contains:
+1. an existing finance Excel workbook
+2. an existing receipt PDF/template
+3. a .env.local containing Supabase environment variables
+
+DO NOT delete, edit, rename the contents of, or overwrite the Excel workbook, receipt PDF, or .env.local.
+
+Before modifying anything:
+1. Inspect the complete project directory.
+2. Report the filenames found.
+3. Check whether package.json already exists.
+4. Check whether a Next.js application has already been initialized.
+5. Check Git status.
+6. Do NOT print secret values from .env.local. You may only report which environment variable NAMES exist.
+
+PROJECT PURPOSE
+
+This will become a finance operations system with:
+- an Excel-like batch finance tracker
+- payment/installment tracking
+- individualized receipt generation
+- individualized receipt email sending
+- batch receipt sending
+- individualized payment reminders
+- batch reminder sending
+- receipt sent/resend tracking
+- Excel backup/export
+- audit history
+- Supabase authentication and database
+- PDF receipt generation
+
+Existing historical finance data must eventually be imported AS-IS.
+Do not attempt to correct, normalize, deduplicate, or reconcile the workbook in this ticket.
+
+THIS TICKET IS FOUNDATION ONLY.
+Do not import workbook data.
+Do not create production finance tables yet.
+Do not send emails.
+Do not generate production receipts.
+
+--------------------------------------------------
+A. PROTECT REFERENCE FILES
+--------------------------------------------------
+
+Create:
+
+reference/
+
+If the finance workbook and receipt PDF are currently at project root, move them into reference/.
+
+Preserve filenames exactly.
+
+Do not alter their file contents.
+
+Add a README inside reference/ explaining that these are source/reference files and must not be edited by application code.
+
+Do not move .env.local.
+
+--------------------------------------------------
+B. INITIALIZE NEXT.JS IF NEEDED
+--------------------------------------------------
+
+If a valid Next.js application already exists:
+- preserve it
+- do not recreate it
+
+If it does NOT exist:
+initialize a modern Next.js App Router project in the CURRENT project directory without destroying existing files.
+
+Required:
+- Next.js
+- React
+- TypeScript
+- App Router
+- src directory
+- Tailwind CSS
+- ESLint
+- npm
+- alias @/*
+
+Use versions compatible with the currently installed Node environment.
+
+Do not create a nested app directory.
+
+If create-next-app cannot safely initialize into the non-empty directory, use a temporary sibling/scaffold directory and copy ONLY the generated application files into the current project directory, preserving:
+- .env.local
+- reference/
+- existing .git/
+
+Remove the temporary scaffold when finished.
+
+--------------------------------------------------
+C. INSTALL CORE DEPENDENCIES
+--------------------------------------------------
+
+Install:
+
+@supabase/supabase-js
+@supabase/ssr
+
+zod
+date-fns
+
+lucide-react
+clsx
+tailwind-merge
+
+@tanstack/react-table
+@tanstack/react-virtual
+
+xlsx
+
+@react-pdf/renderer
+
+resend
+@react-email/components
+
+react-hook-form
+@hookform/resolvers
+
+Do not configure or call Resend yet.
+
+--------------------------------------------------
+D. ENVIRONMENT VARIABLE VALIDATION
+--------------------------------------------------
+
+Inspect variable NAMES in .env.local without printing values.
+
+The application should support the current Supabase configuration.
+
+Preferred browser/server variables:
+
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+
+If the project currently uses:
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+do not arbitrarily delete it.
+
+Create:
+
+src/lib/env.ts
+
+Use Zod to validate the environment variables needed by the application.
+
+Do NOT expose any service-role/secret key to browser code.
+
+If a service-role/secret key exists, it must only ever be referenced from server-only modules.
+
+Resend variables may be optional at this stage.
+
+--------------------------------------------------
+E. SUPABASE CLIENTS
+--------------------------------------------------
+
+Create the Supabase structure recommended for current Next.js App Router SSR:
+
+src/lib/supabase/client.ts
+src/lib/supabase/server.ts
+
+And the current Next.js/Supabase auth session-refresh mechanism appropriate to the installed versions.
+
+If the installed Next.js/Supabase versions use proxy.ts rather than middleware.ts, use proxy.ts.
+
+Follow current @supabase/ssr patterns.
+
+Never use deprecated @supabase/auth-helpers packages.
+
+Never expose Supabase secret/service-role credentials to the client.
+
+--------------------------------------------------
+F. INITIAL APP STRUCTURE
+--------------------------------------------------
+
+Create this logical structure where appropriate:
+
+src/
+  app/
+    page.tsx
+    login/
+      page.tsx
+    dashboard/
+      page.tsx
+    finance/
+      page.tsx
+    settings/
+      page.tsx
+
+  components/
+    finance/
+    receipts/
+    email/
+    ui/
+
+  lib/
+    supabase/
+    finance/
+    receipts/
+    email/
+    excel/
+
+  types/
+
+scripts/
+
+supabase/
+  migrations/
+
+reference/
+
+Do not add placeholder files unnecessarily if Git would not track empty folders.
+Use README or .gitkeep only where useful.
+
+--------------------------------------------------
+G. BASIC UI
+--------------------------------------------------
+
+Create a minimal professional shell.
+
+This is an internal Toronto Academy finance application, not a marketing site.
+
+Home/login should be simple.
+
+Create a dashboard page showing cards/links for:
+
+Finance Tracker
+Receipts
+Payment Reminders
+Exports / Backups
+Settings
+
+The Finance page should contain a placeholder for the future Excel-style grid and explicitly say:
+
+"Finance Tracker"
+
+with placeholder controls:
+
+Batch
+Program
+Balance Due
+Receipt Status
+Reminder Status
+
+Do NOT implement fake finance data.
+
+Do not hardcode sample students.
+
+--------------------------------------------------
+H. AUTH FOUNDATION
+--------------------------------------------------
+
+Prepare Supabase authentication so authenticated application routes can eventually be protected.
+
+Do not over-engineer roles yet.
+
+For this ticket:
+- login page may use email/password Supabase auth
+- dashboard/finance/settings should require a signed-in user if auth configuration permits
+- unauthenticated users should be redirected to login
+
+Use server-side auth checks where appropriate.
+
+Authenticated routes must not use ISR/static caching in a way that could cache user sessions.
+
+--------------------------------------------------
+I. HEALTH CHECK
+--------------------------------------------------
+
+Create a development-only or safe server-side Supabase connectivity check.
+
+It must:
+- confirm required environment configuration exists
+- exercise the Supabase server client
+- never reveal keys/secrets
+- never use the service role from client/browser code
+
+The UI may show a simple:
+Supabase: Connected
+or
+Supabase: Configuration Error
+
+Do not leak internal error details to public UI.
+
+--------------------------------------------------
+J. PROJECT DOCUMENTATION
+--------------------------------------------------
+
+Create:
+
+docs/FINANCE-BOOTSTRAP-00.md
+
+Document:
+
+1. Ticket purpose
+2. Current project architecture
+3. Installed dependencies
+4. Environment variable NAMES required
+5. Supabase client setup
+6. Reference-file handling
+7. Routes created
+8. What was intentionally NOT implemented
+9. Local testing steps
+10. Known issues / assumptions
+
+Also update the main README with:
+- application purpose
+- local startup instructions
+- high-level architecture
+- warning not to modify reference files
+
+--------------------------------------------------
+K. SECURITY / GIT
+--------------------------------------------------
+
+Verify .gitignore excludes:
+
+.env
+.env.local
+.env.*.local
+node_modules
+.next
+
+But do not accidentally ignore reference Excel/PDF files unless they contain data that should not enter Git.
+
+IMPORTANT:
+Before staging anything, STOP and report whether the current workbook contains personal/student financial information.
+
+If it does, recommend keeping reference/ out of Git and adding the actual source files to .gitignore.
+
+Do not commit financial/student source files without explicit approval.
+
+--------------------------------------------------
+L. VALIDATION
+--------------------------------------------------
+
+Run:
+
+npm run lint
+
+and the appropriate TypeScript check.
+
+If package.json has no typecheck script, add:
+
+"typecheck": "tsc --noEmit"
+
+Then run:
+
+npm run typecheck
+
+Run:
+
+npm run build
+
+If practical, start the development server and verify:
+
+/
+ /login
+ /dashboard
+ /finance
+ /settings
+
+Check for console/runtime errors.
+
+--------------------------------------------------
+M. STOP CONDITION
+--------------------------------------------------
+
+Do NOT:
+- create finance database schema
+- import Excel
+- generate receipts
+- alter receipt numbering rules
+- send emails
+- configure Resend
+- add automated reminders
+- create Excel exports
+- change historical values
+
+At completion give me:
+
+1. files created/modified
+2. dependencies installed
+3. exact environment variable NAMES detected, never values
+4. Supabase connectivity result
+5. lint result
+6. typecheck result
+7. build result
+8. routes tested
+9. Git status
+10. any blockers
+11. whether reference files should be excluded from Git because they contain student/financial data
+
+Do not commit or push until I explicitly request it.
