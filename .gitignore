@@ -44,3 +44,7 @@ next-env.d.ts
 # Keep the folder documented but never commit the data itself.
 /reference/*
 !/reference/README.md
+
+# Private, never-committed analysis output.
+# Row-level workbook analysis contains real student names, IDs and balances.
+.private/
