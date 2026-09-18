@@ -10,6 +10,10 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
+    // Analysis scripts under scripts/ run on Node's native TypeScript support,
+    // which resolves ESM specifiers literally and so needs the .ts extension
+    // written out. Safe with noEmit: nothing here is compiled to JavaScript.
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,

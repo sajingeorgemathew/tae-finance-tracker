@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"scripts/**/*.test.mts\"",
+    "finance:analyze": "node scripts/finance-import/analyze-workbook.mts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
