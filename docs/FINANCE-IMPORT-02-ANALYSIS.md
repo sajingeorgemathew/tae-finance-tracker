@@ -16,7 +16,7 @@ The workbook holds real student financial records. This document contains sheet 
 | Size | 268,547 bytes |
 | SHA-256 | `62d53173ebc357428351b4429b55779ca5acf0896840f3faab8d0b20af0894b2` |
 | Last modified | 2026-09-17T17:39:50.013Z |
-| Analyzed at | 2026-09-18T18:18:56.465Z |
+| Analyzed at | 2026-09-18T22:31:27.063Z |
 | Date system | 1900 (with the Lotus leap-year bug) |
 | Sheets | 15 |
 
