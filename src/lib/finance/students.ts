@@ -3,6 +3,7 @@ import 'server-only'
 import { createClient } from '@/lib/supabase/server'
 import type { Student, UUID } from '@/types/finance'
 
+import { resolveStudentName } from './grid/student-name'
 import { type PageOptions, raiseQueryError, resolveRange, sanitizeSearchTerm } from './query'
 
 /**
@@ -103,20 +104,13 @@ export async function findStudentsByNumber(studentNumber: string): Promise<Stude
  * Falls back through display name, parsed parts, the raw legacy name, and
  * finally the student number, so an incomplete historical row still renders as
  * something recognisable.
+ *
+ * The rule itself lives in `./grid/student-name`, which carries no
+ * `server-only` import and so can also run in the finance grid's view-model
+ * builder and in its tests. Re-exported rather than reimplemented: two copies
+ * of a name-resolution chain is two screens eventually disagreeing about what
+ * a student is called.
  */
 export function studentDisplayName(student: Student): string {
-  const display = student.display_name?.trim()
-  if (display) return display
-
-  const parts = [student.first_name, student.middle_name, student.last_name]
-    .map((part) => part?.trim())
-    .filter((part): part is string => Boolean(part))
-
-  if (parts.length > 0) return parts.join(' ')
-
-  const legacy = student.legacy_name?.trim()
-  if (legacy) return legacy
-
-  const number = student.student_number?.trim()
-  return number ? `Student ${number}` : 'Unnamed student'
+  return resolveStudentName(student)
 }

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"scripts/**/*.test.mts\"",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"scripts/**/*.test.mts\" \"src/**/*.test.mts\"",
     "finance:analyze": "node scripts/finance-import/analyze-workbook.mts",
     "finance:import:dry-run": "node scripts/finance-import/import-workbook.mts",
     "finance:import:apply": "node scripts/finance-import/import-workbook.mts --apply",

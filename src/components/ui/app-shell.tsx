@@ -9,18 +9,28 @@ const NAV = [
   { href: '/settings', label: 'Settings' },
 ] as const
 
-/** Minimal internal-tool chrome: title bar, nav, signed-in user, sign out. */
+/**
+ * Minimal internal-tool chrome: title bar, nav, signed-in user, sign out.
+ *
+ * `wide` drops the reading-width cap. The finance tracker is a spreadsheet —
+ * its value is in scanning many columns at once, and a 72rem column would put
+ * a horizontal scrollbar on a screen with room to spare.
+ */
 export function AppShell({
   children,
   userEmail,
+  wide = false,
 }: {
   children: ReactNode
   userEmail?: string | null
+  wide?: boolean
 }) {
+  const container = wide ? 'w-full px-6' : 'mx-auto w-full max-w-6xl px-6'
+
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-50 dark:bg-black">
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-3">
+        <div className={`flex flex-wrap items-center gap-x-6 gap-y-2 py-3 ${container}`}>
           <Link href="/dashboard" className="text-sm font-semibold tracking-tight">
             Toronto Academy of Education
             <span className="ml-2 font-normal text-zinc-500">Finance</span>
@@ -54,7 +64,7 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">{children}</main>
+      <main className={`flex-1 py-8 ${container}`}>{children}</main>
 
       <footer className="border-t border-zinc-200 px-6 py-4 text-xs text-zinc-500 dark:border-zinc-800">
         Internal finance system. Handle student financial records accordingly.
