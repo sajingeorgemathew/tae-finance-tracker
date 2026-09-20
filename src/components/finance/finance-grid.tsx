@@ -11,10 +11,9 @@ import {
 import { useMemo } from 'react'
 
 import { LegacyBadge, Money, ReceiptBadge, ReminderCell } from '@/components/finance/finance-cells'
-import type { LegacyColumn } from '@/lib/finance/grid/legacy-cells'
 import { BLANK_MONEY } from '@/lib/finance/grid/money'
 import { NO_STUDENT_NUMBER } from '@/lib/finance/grid/student-name'
-import type { FinanceGridRow, ScheduledColumn } from '@/lib/finance/grid/types'
+import type { FinanceColumn, FinanceGridRow } from '@/lib/finance/grid/types'
 import { cn } from '@/lib/utils'
 
 /**
@@ -61,8 +60,10 @@ const NAME_WIDTH = 224
 
 export interface FinanceGridProps {
   rows: FinanceGridRow[]
-  columns: LegacyColumn[]
-  scheduledColumns: ScheduledColumn[]
+  /** The ACTUAL group, from the batch's column manifest. */
+  columns: FinanceColumn[]
+  /** The INSTALLMENT group, from the batch's column manifest. */
+  scheduledColumns: FinanceColumn[]
   rowSelection: RowSelectionState
   onRowSelectionChange: (updater: React.SetStateAction<RowSelectionState>) => void
   onOpenDetails: (row: FinanceGridRow) => void
@@ -79,6 +80,19 @@ export function FinanceGrid({
   const columnDefs = useMemo(
     () => buildColumns(columns, scheduledColumns, onOpenDetails),
     [columns, scheduledColumns, onOpenDetails],
+  )
+
+  // Which headings right-align: the manifest's `value_kind`, not a guess from
+  // the key. A text column that is one day made visible keeps its heading on
+  // the left, with its cells.
+  const moneyKeys = useMemo(
+    () =>
+      new Set(
+        [...columns, ...scheduledColumns]
+          .filter((column) => column.valueKind === 'money')
+          .map((column) => column.key),
+      ),
+    [columns, scheduledColumns],
   )
 
   const table = useTable({
@@ -118,7 +132,7 @@ export function FinanceGrid({
                         ? 'bg-zinc-100 text-[11px] tracking-wide text-zinc-600 uppercase dark:bg-zinc-900 dark:text-zinc-400'
                         : 'bg-zinc-50 text-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300',
                       isBanner && 'border-l border-zinc-200 dark:border-zinc-800',
-                      isMoneyColumn(header.column.id) && !isBanner && 'text-right',
+                      moneyKeys.has(header.column.id) && !isBanner && 'text-right',
                       frozen !== null && 'sticky z-10',
                     )}
                   >
@@ -190,13 +204,18 @@ function widthOf(columnId: string): number | undefined {
   return undefined
 }
 
-function isMoneyColumn(columnId: string): boolean {
-  return columnId.startsWith('actual:') || columnId.startsWith('sched:')
-}
-
+/**
+ * The column definitions for one batch.
+ *
+ * Both finance groups are built from the manifest-backed column lists and
+ * nothing else: a column is present because the batch's layout says it
+ * exists, not because some row happened to hold a value in it. A column every
+ * student left blank therefore renders as a column of em dashes, which is what
+ * the workbook showed.
+ */
 function buildColumns(
-  historical: readonly LegacyColumn[],
-  scheduled: readonly ScheduledColumn[],
+  historical: readonly FinanceColumn[],
+  scheduled: readonly FinanceColumn[],
   onOpenDetails: (row: FinanceGridRow) => void,
 ): ColumnDef<typeof features, FinanceGridRow, unknown>[] {
   const identity = helper.group({

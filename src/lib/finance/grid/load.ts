@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { raiseQueryError } from '../query.ts'
 import { resolveRequestedBatch, UNASSIGNED_BATCH } from './select-batch.ts'
 import { buildFinanceGrid, type RawFinanceRecord, type RawInstallment, type RawPayment } from './view-model.ts'
+import type { RawManifestColumn } from './manifest.ts'
 import type { BatchOption, FinanceGridView, ProgramOption } from './types.ts'
 
 /**
@@ -21,17 +22,20 @@ import type { BatchOption, FinanceGridView, ProgramOption } from './types.ts'
  * A consequence to keep in mind: a caller without finance access sees an empty
  * grid, not an error. Absence of rows is not proof that a batch is empty.
  *
- * ## Query strategy — five requests, regardless of batch size
+ * ## Query strategy — seven requests, regardless of batch size
  *
  *   1. programs
  *   2. batches
  *   3. `batch_id` of every finance record, to count students per batch
- *   4. the selected batch's finance records, with their student embedded
- *   5. installments and 6. payments for those records, by `in (...)`
+ *   4. the selected batch's finance records, with their student embedded, and
+ *   5. the selected batch's column manifest — issued together
+ *   6. installments and 7. payments for those records, by `in (...)`
  *
  * Nothing loops over students. Step 4 uses a PostgREST embed rather than a
- * lookup per row, and steps 5 and 6 take the whole batch's record ids at once —
- * so a batch of 30 students costs the same six round trips as a batch of 3.
+ * lookup per row, step 5 is one request for the whole batch's layout, and
+ * steps 6 and 7 take the whole batch's record ids at once — so a batch of 30
+ * students costs the same round trips as a batch of 3. The unassigned view has
+ * no batch and so no manifest; step 5 is skipped there.
  *
  * Step 3 reads one uuid column across all 397 finance records rather than
  * issuing a count per batch, which would be 23 requests to fill one dropdown.
@@ -68,6 +72,17 @@ const INSTALLMENT_COLUMNS =
  */
 const PAYMENT_COLUMNS =
   'id, student_finance_record_id, amount, payment_date, payment_method, note, voided_at, legacy_receipt_sent:legacy_raw_json->>receipt_sent'
+
+/**
+ * The layout fields only. The workbook hash, sheet name and table key stay in
+ * the database: the browser needs a column's key, heading, section, role,
+ * kind and order, and nothing about where in a spreadsheet it once sat.
+ */
+const MANIFEST_COLUMNS =
+  'column_key, section, source_column_letter, source_header, normalized_role, value_kind, display_order, is_grid_visible, display_even_if_blank'
+
+/** A batch's layout is a few dozen rows; this guards a missing filter. */
+const MANIFEST_LIMIT = 500
 
 export interface LoadFinanceGridOptions {
   /** Program short code from the URL, e.g. `'PSW'`. */
@@ -177,6 +192,8 @@ export async function loadFinanceGrid(
     batchSelectionNote: resolved.note,
     columns: [],
     scheduledColumns: [],
+    layoutSource: 'none',
+    blankStructuralColumns: 0,
     rows: [],
     totals: {
       students: 0,
@@ -200,7 +217,7 @@ export async function loadFinanceGrid(
   if (!wantsUnassigned && resolved.batch === null) return emptyView
   if (wantsUnassigned && (selectedProgram === null || unassignedCount === 0)) return emptyView
 
-  // --- 4. Finance records for the selection ----------------------------------
+  // --- 4 & 5. Finance records and the column manifest for the selection ------
   let recordQuery = supabase
     .from('student_finance_records')
     .select(RECORD_COLUMNS)
@@ -213,17 +230,32 @@ export async function loadFinanceGrid(
     recordQuery = recordQuery.eq('batch_id', resolved.batch!.id)
   }
 
-  const recordsResult = await recordQuery
+  // The manifest is the batch's, not the rows', so it is fetched alongside the
+  // records rather than after them, and it is fetched once — never per student.
+  // The unassigned records have no batch and therefore no manifest.
+  const manifestQuery = wantsUnassigned
+    ? Promise.resolve({ data: [] as RawManifestColumn[], error: null })
+    : supabase
+        .from('batch_finance_columns')
+        .select(MANIFEST_COLUMNS)
+        .eq('batch_id', resolved.batch!.id)
+        .order('section')
+        .order('display_order')
+        .range(0, MANIFEST_LIMIT - 1)
+
+  const [recordsResult, manifestResult] = await Promise.all([recordQuery, manifestQuery])
   if (recordsResult.error) raiseQueryError('load finance records for batch', recordsResult.error)
+  if (manifestResult.error) raiseQueryError('load column layout for batch', manifestResult.error)
 
   const records = (recordsResult.data ?? []) as unknown as RawFinanceRecord[]
+  const manifest = (manifestResult.data ?? []) as unknown as RawManifestColumn[]
   const recordIds = records.map((record) => record.id)
 
   if (recordIds.length === 0) {
     return { ...emptyView, selectedBatch: resolved.batch, batchSelectionNote: resolved.note }
   }
 
-  // --- 5 & 6. Installments and payments for exactly those records ------------
+  // --- 6 & 7. Installments and payments for exactly those records ------------
   const [installmentsResult, paymentsResult] = await Promise.all([
     supabase
       .from('installments')
@@ -251,6 +283,7 @@ export async function loadFinanceGrid(
     records,
     installments,
     payments,
+    manifest,
     programShortCode: selectedProgram?.shortCode ?? '',
     batchName: resolved.batch?.name ?? null,
   })
@@ -268,6 +301,7 @@ export async function loadFinanceGrid(
     // history off the bottom of the screen.
     truncated:
       records.length >= RECORD_LIMIT ||
+      manifest.length >= MANIFEST_LIMIT ||
       installments.length >= CHILD_LIMIT ||
       payments.length >= CHILD_LIMIT,
   }

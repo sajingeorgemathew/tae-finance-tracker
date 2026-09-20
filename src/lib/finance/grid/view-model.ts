@@ -21,6 +21,21 @@
  * `Balance Fees` (a row-local formula, never a student balance) is not used at
  * all.
  *
+ * ## Structure and values are two different things
+ *
+ * Which columns a batch *has* comes from its column manifest
+ * (`batch_finance_columns`, FINANCE-COLUMN-MANIFEST-03A): existence, order,
+ * label, section, money-or-text. Which *value* a student has in a column comes
+ * from the student's own record and installments. The two are combined here
+ * and only here, and the rule where they meet is fixed: a column the manifest
+ * lists and a student has no value in is blank. It is never `$0.00`, and no
+ * placeholder is ever written back to make the shape come out.
+ *
+ * Where a batch has no manifest — the unassigned view, or a batch created some
+ * other way — the columns are derived from the union of cells across its rows,
+ * which is the older approach and cannot show a column every student left
+ * empty. The view model says which of the two it used.
+ *
  * ## What is derived
  *
  * Only things that are *about* the data rather than a restatement of it: which
@@ -41,6 +56,12 @@ import {
   type LegacyColumn,
 } from './legacy-cells.ts'
 import {
+  resolveManifestColumns,
+  toFinanceColumn,
+  type RawManifestColumn,
+  type ResolvedColumn,
+} from './manifest.ts'
+import {
   BLANK_MONEY,
   moneyFromNumeric,
   sumMoney,
@@ -49,10 +70,11 @@ import {
 import { summarizeLegacyReceipts } from './receipt-status.ts'
 import { resolveStudentName, type NamedStudent } from './student-name.ts'
 import type {
+  FinanceColumn,
   FinanceGridRow,
+  LayoutSource,
   LegacyFlag,
   PaymentEntry,
-  ScheduledColumn,
   SummaryTotals,
 } from './types.ts'
 
@@ -106,29 +128,43 @@ export interface BuildGridInput {
   records: readonly RawFinanceRecord[]
   installments: readonly RawInstallment[]
   payments: readonly RawPayment[]
+  /** The selected batch's `batch_finance_columns` rows. Empty when it has none. */
+  manifest?: readonly RawManifestColumn[]
   programShortCode: string
   batchName: string | null
 }
 
 export interface BuiltGrid {
-  columns: LegacyColumn[]
-  scheduledColumns: ScheduledColumn[]
+  columns: FinanceColumn[]
+  scheduledColumns: FinanceColumn[]
+  layoutSource: LayoutSource
+  blankStructuralColumns: number
   rows: FinanceGridRow[]
   totals: SummaryTotals
   balanceConvention: BalanceConventionResult
 }
 
 // -----------------------------------------------------------------------------
-// Scheduled installment columns
+// Scheduled installment columns (derived fallback)
 // -----------------------------------------------------------------------------
+
+/** A scheduled column derived from normalized installments alone. */
+export interface ScheduledColumn {
+  key: string
+  /** `legacy_column_name` as the workbook spelled it, else the default note. */
+  label: string
+  /** Source order within the batch's INSTALLMENT FEE STRUCTURE section. */
+  sequence: number
+}
 
 /**
  * The batch's scheduled columns, from normalized installments only.
  *
- * A batch with no installments — every ECEA record — gets an empty list and the
- * grid renders no INSTALLMENT group at all. That is the ticket's rule: the ECEA
- * sheet's plan is ordinal, not monthly, and no schedule is manufactured for it.
- * Its ordinal fee columns are historical ACTUAL columns instead, which is where
+ * The fallback for a batch with no installment manifest. A batch with no
+ * installments — every ECEA record — gets an empty list and the grid renders
+ * no INSTALLMENT group at all. That is the ticket's rule: the ECEA sheet's
+ * plan is ordinal, not monthly, and no schedule is manufactured for it. Its
+ * ordinal fee columns are historical ACTUAL columns instead, which is where
  * the workbook put them.
  *
  * Ordering is `sequence_number`, which the importer assigned by walking the
@@ -144,7 +180,7 @@ export function resolveScheduledColumns(
   for (const installment of installments) {
     const sequence = installment.sequence_number ?? Number.MAX_SAFE_INTEGER
     const label = scheduledLabel(installment)
-    const key = `sched:${sequence}:${label}`
+    const key = derivedScheduledKey(sequence, label)
 
     if (!byKey.has(key)) byKey.set(key, { key, label, sequence })
   }
@@ -152,6 +188,10 @@ export function resolveScheduledColumns(
   return [...byKey.values()].sort(
     (a, b) => a.sequence - b.sequence || a.label.localeCompare(b.label),
   )
+}
+
+function derivedScheduledKey(sequence: number, label: string): string {
+  return `sched:${sequence}:${label}`
 }
 
 /**
@@ -174,6 +214,93 @@ function scheduledLabel(installment: RawInstallment): string {
   return installment.sequence_number === null
     ? 'Scheduled'
     : `Scheduled ${installment.sequence_number}`
+}
+
+// -----------------------------------------------------------------------------
+// Column layout — manifest first, derived where the manifest is silent
+// -----------------------------------------------------------------------------
+
+function derivedActualColumn(column: LegacyColumn): ResolvedColumn {
+  return {
+    key: column.key,
+    label: column.label,
+    section: 'actual',
+    role: 'other',
+    valueKind: 'money',
+    order: column.index,
+    unheaded: column.unheaded,
+    origin: 'derived',
+    letter: column.letter,
+    visible: true,
+    displayEvenIfBlank: true,
+  }
+}
+
+function derivedScheduledColumn(column: ScheduledColumn): ResolvedColumn {
+  return {
+    key: column.key,
+    label: column.label,
+    section: 'installment',
+    role: 'other',
+    valueKind: 'money',
+    order: column.sequence,
+    unheaded: false,
+    origin: 'derived',
+    letter: null,
+    visible: true,
+    displayEvenIfBlank: true,
+  }
+}
+
+/**
+ * The ACTUAL columns of the batch.
+ *
+ * The manifest, when it has any ACTUAL rows, defines the group: every column
+ * it lists (hidden ones included, so their letters are accounted for), in its
+ * order. Then, as a safety net rather than a source, any letter present in a
+ * row's preserved cells that the manifest does not mention is appended as a
+ * derived column — so a value can never be silently hidden by a manifest that
+ * happens not to describe it. With this workbook that never happens; the test
+ * is what makes it a guarantee rather than a hope.
+ *
+ * With no manifest rows, the group is the older union-of-cells derivation.
+ */
+function resolveActualColumns(
+  manifest: readonly ResolvedColumn[],
+  rawJsonByRecord: readonly unknown[],
+): ResolvedColumn[] {
+  const derived = resolveHistoricalColumns(rawJsonByRecord).map(derivedActualColumn)
+  if (manifest.length === 0) return derived
+
+  const known = new Set(manifest.map((column) => column.letter).filter((letter) => letter !== null))
+  const extra = derived.filter((column) => column.letter !== null && !known.has(column.letter))
+
+  return [...manifest, ...extra]
+}
+
+/**
+ * Maps one installment to a manifest column, or to nothing.
+ *
+ * The importer assigned `sequence_number` by walking the schedule section left
+ * to right, and the manifest's `display_order` for that section is the same
+ * walk, so the sequence is the join. The heading is checked as well: if the
+ * installment's own `legacy_column_name` disagrees with the manifest heading
+ * at that position, the installment is *not* placed under a column that may
+ * describe something else — it gets a derived column of its own instead, and
+ * nothing is hidden or mislabelled.
+ */
+function manifestColumnForInstallment(
+  installment: RawInstallment,
+  byOrder: ReadonlyMap<number, ResolvedColumn>,
+): ResolvedColumn | null {
+  if (installment.sequence_number === null) return null
+  const column = byOrder.get(installment.sequence_number)
+  if (!column) return null
+
+  const heading = installment.legacy_column_name?.trim()
+  if (heading && heading !== column.label) return null
+
+  return column
 }
 
 // -----------------------------------------------------------------------------
@@ -294,8 +421,38 @@ function balanceDisagreesWithConvention(
  * are ordered by name so the list is stable between renders.
  */
 export function buildFinanceGrid(input: BuildGridInput): BuiltGrid {
-  const columns = resolveHistoricalColumns(input.records.map((record) => record.legacy_raw_json))
-  const scheduledColumns = resolveScheduledColumns(input.installments)
+  const manifest = resolveManifestColumns(input.manifest ?? [])
+  const rawJsonByRecord = input.records.map((record) => record.legacy_raw_json)
+
+  // --- Columns: the manifest defines the layout; row data never adds to it
+  // except as the documented safety net ---------------------------------------
+  const actualColumns = resolveActualColumns(manifest.actual, rawJsonByRecord)
+
+  const scheduledByOrder = new Map(manifest.installment.map((column) => [column.order, column]))
+  const scheduledColumns: ResolvedColumn[] = [...manifest.installment]
+  const derivedScheduled = new Map<string, ResolvedColumn>()
+  if (manifest.installment.length === 0) {
+    for (const column of resolveScheduledColumns(input.installments)) {
+      scheduledColumns.push(derivedScheduledColumn(column))
+    }
+  } else {
+    // Installments the manifest does not place get a derived column each, so
+    // a scheduled figure is never dropped because its position is undescribed.
+    for (const installment of input.installments) {
+      if (manifestColumnForInstallment(installment, scheduledByOrder) !== null) continue
+      const sequence = installment.sequence_number ?? Number.MAX_SAFE_INTEGER
+      const key = derivedScheduledKey(sequence, scheduledLabel(installment))
+      if (!derivedScheduled.has(key)) {
+        derivedScheduled.set(
+          key,
+          derivedScheduledColumn({ key, label: scheduledLabel(installment), sequence }),
+        )
+      }
+    }
+    scheduledColumns.push(
+      ...[...derivedScheduled.values()].sort((a, b) => a.order - b.order || a.key.localeCompare(b.key)),
+    )
+  }
 
   const installmentsByRecord = groupBy(input.installments, (item) => item.student_finance_record_id)
   const paymentsByRecord = groupBy(input.payments, (item) => item.student_finance_record_id)
@@ -324,13 +481,23 @@ export function buildFinanceGrid(input: BuildGridInput): BuiltGrid {
       .map(toPaymentEntry)
       .sort(byDateDescending)
 
+    // Every column starts blank. A blank source cell produced no installment
+    // row at all, so a key nothing fills stays blank here — the manifest says
+    // the column exists, the record says the student has nothing in it, and
+    // "nothing" is not $0.00.
     const scheduledCells: Record<string, MoneyCell> = {}
     for (const column of scheduledColumns) scheduledCells[column.key] = BLANK_MONEY
     for (const installment of installmentsByRecord.get(record.id) ?? []) {
-      const sequence = installment.sequence_number ?? Number.MAX_SAFE_INTEGER
-      const key = `sched:${sequence}:${scheduledLabel(installment)}`
-      // A blank source cell produced no installment row at all, so an absent
-      // key stays blank here. It is never filled in as $0.00.
+      const column =
+        manifest.installment.length > 0
+          ? manifestColumnForInstallment(installment, scheduledByOrder)
+          : null
+      const key =
+        column?.key ??
+        derivedScheduledKey(
+          installment.sequence_number ?? Number.MAX_SAFE_INTEGER,
+          scheduledLabel(installment),
+        )
       if (key in scheduledCells) {
         scheduledCells[key] = moneyFromNumeric(installment.scheduled_amount)
       }
@@ -354,7 +521,7 @@ export function buildFinanceGrid(input: BuildGridInput): BuiltGrid {
       legacyTotalPaid: paid,
       legacyBalance: balance,
 
-      actualCells: historicalCellsForRecord(record.legacy_raw_json, columns),
+      actualCells: historicalCellsForRecord(record.legacy_raw_json, actualColumns),
       scheduledCells,
 
       payments,
@@ -380,13 +547,57 @@ export function buildFinanceGrid(input: BuildGridInput): BuiltGrid {
 
   rows.sort(compareBySourceRow(input.records))
 
+  // --- Visibility, decided once the cells are known --------------------------
+  const allBlank = (column: ResolvedColumn): boolean =>
+    rows.every((row) => {
+      const cell =
+        column.section === 'actual'
+          ? row.actualCells[column.key]
+          : row.scheduledCells[column.key]
+      return cell === undefined || cell.kind === 'blank'
+    })
+
+  const shown = (column: ResolvedColumn): boolean =>
+    column.visible && (column.displayEvenIfBlank || !allBlank(column))
+
+  const visibleActual = actualColumns.filter(shown)
+  const visibleScheduled = scheduledColumns.filter(shown)
+
+  // Hidden columns must not leak their cells either: the browser gets exactly
+  // the keys it has columns for.
+  const visibleKeys = new Set([...visibleActual, ...visibleScheduled].map((column) => column.key))
+  for (const row of rows) {
+    row.actualCells = pick(row.actualCells, visibleKeys)
+    row.scheduledCells = pick(row.scheduledCells, visibleKeys)
+  }
+
+  const blankStructuralColumns = [...visibleActual, ...visibleScheduled].filter(
+    (column) => column.origin === 'manifest' && allBlank(column),
+  ).length
+
+  const usedManifest = [...visibleActual, ...visibleScheduled].some(
+    (column) => column.origin === 'manifest',
+  )
+  const layoutSource: LayoutSource =
+    usedManifest ? 'manifest' : visibleActual.length + visibleScheduled.length > 0 ? 'derived' : 'none'
+
   return {
-    columns,
-    scheduledColumns,
+    columns: visibleActual.map(toFinanceColumn),
+    scheduledColumns: visibleScheduled.map(toFinanceColumn),
+    layoutSource,
+    blankStructuralColumns,
     rows,
     totals: summarize(rows),
     balanceConvention,
   }
+}
+
+function pick(cells: Record<string, MoneyCell>, keys: ReadonlySet<string>): Record<string, MoneyCell> {
+  const out: Record<string, MoneyCell> = {}
+  for (const [key, cell] of Object.entries(cells)) {
+    if (keys.has(key)) out[key] = cell
+  }
+  return out
 }
 
 /** Orders rows the way the workbook does, with a stable fallback. */
@@ -414,7 +625,8 @@ function compareBySourceRow(records: readonly RawFinanceRecord[]) {
  * the import refused to write the batch sheets' ACTUAL cells as payments.
  *
  * The `*Missing` counts are what let the summary strip say a total is based on
- * the figures that exist rather than implying it covers everyone.
+ * the figures that exist rather than implying it covers everyone. A column the
+ * manifest restores contributes nothing here: structure is not a figure.
  */
 export function summarize(rows: readonly FinanceGridRow[]): SummaryTotals {
   const fees = sumMoney(rows.map((row) => row.legacyTotalFee))

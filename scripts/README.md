@@ -97,6 +97,9 @@ finance-import/
     report-fixtures.mts    one plan full of people, for both reports' privacy tests
     rls-verification.mts   reads back as the application does, never as service role
     supabase-write.mts     the only module that writes. Service role only.
+    batch-tables.mts       table discovery, shared by the plan and the manifest (03A)
+    column-manifest.mts    the batch column layout: plan, match, render, privacy gate (03A)
+  generate-column-manifest.mts  03A entry point: dry run, --write-migration, --check
 ```
 
 ## `finance-import/` — FINANCE-IMPORT-02 Phase B2
@@ -168,6 +171,50 @@ verification is data rather than prose appended after the fact, so the whole
 document regenerates rather than all but its last section. `--check` renders
 and compares without writing: that is how a reviewer confirms the committed
 report is what these inputs produce.
+
+## `finance-import/` — FINANCE-COLUMN-MANIFEST-03A
+
+```
+npm run finance:manifest                       dry run: plan and report, write nothing committable
+npm run finance:manifest -- --write-migration   also (re)write the data migration
+npm run finance:manifest -- --check             verify the committed migration is current
+```
+
+Derives each imported batch's **column layout** — which finance columns
+existed, in what order, headed how, in which section, holding money or text —
+from the workbook, using the importer's own block detection
+(`importer/batch-tables.mts` is the table-discovery half of the import
+planner, lifted out so the two cannot diverge). The layout is written as a
+source-controlled SQL data migration; see `docs/FINANCE-COLUMN-MANIFEST-03A.md`.
+
+| Output | Committed? |
+| --- | --- |
+| `.private/finance-import-analysis/column-manifest-plan.json` | **No** — Git-ignored, though it holds layout only. |
+| `supabase/migrations/20260920120100_batch_finance_columns_legacy_manifest.sql` | Yes. Generated; 383 rows of batch codes, sheet names, column letters and headings. |
+
+Three things to know:
+
+* **The workbook is not required at application runtime.** The application
+  reads `batch_finance_columns`; the generated migration is what a fresh
+  environment runs. The workbook is needed only here, to reproduce or audit
+  that migration from its source — `--check` is how a reviewer confirms the
+  committed file is what the workbook produces, and a test does the same when
+  the workbook is present.
+* **The migration is already source-controlled.** Regenerating it in place is
+  a no-op unless the rules change; a new migration per run would apply the
+  same rows twice. Every row's id is the importer's v5 UUID over a source key
+  (`batchFinanceColumnSourceKey`), and the migration is `on conflict do nothing`.
+* **Nothing about a student reaches the artifact.** The generator refuses to
+  write a migration containing any string literal that is not exactly a value
+  of the layout — a whitelist computed from the plan, not a heuristic — and
+  `importer/column-manifest.test.mts` checks it against fixtures with known
+  names, numbers and amounts.
+
+The dry run reads hosted `batches` and `programs` (read-only, through
+`importer/supabase-readonly.mts`) to prove each table maps to exactly one batch
+by deterministic id **and** batch code. Any ambiguity or gap blocks the whole
+plan; nothing partial is written. It never writes to the database — applying
+the migration is a separate, reviewed `supabase db push`.
 
 Four rules hold across both phases:
 

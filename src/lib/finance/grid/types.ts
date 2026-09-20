@@ -15,7 +15,6 @@
  */
 
 import type { BalanceConventionResult, BalanceState } from './balance.ts'
-import type { LegacyColumn } from './legacy-cells.ts'
 import type { MoneyCell } from './money.ts'
 import type { LegacyReceiptStatus, LegacyReceiptSummary } from './receipt-status.ts'
 
@@ -38,19 +37,74 @@ export interface BatchOption {
   studentCount: number
 }
 
+/** The two finance groups of the grid, as `batch_finance_columns.section` names them. */
+export type FinanceColumnSection = 'actual' | 'installment'
+
 /**
- * One scheduled installment column, from normalized `installments`.
- *
- * Never derived from the ACTUAL section: a scheduled figure and a payment of
- * the same name are different facts, and the import kept them apart on purpose.
+ * Semantic role of a column. Metadata only — the label is always the source
+ * heading, verbatim, and is never rewritten from the role. `other` is a
+ * legitimate value: an unheaded reconciliation column, or a heading such as
+ * "Marc" the import did not recognise and this screen will not guess at.
  */
-export interface ScheduledColumn {
+export type FinanceColumnRole =
+  | 'student_number'
+  | 'student_name'
+  | 'enrollment'
+  | 'month'
+  | 'late_fees'
+  | 'total_fee'
+  | 'total_paid'
+  | 'balance'
+  | 'discount'
+  | 'installment'
+  | 'remarks'
+  | 'payer'
+  | 'other'
+
+/** How a cell in the column is read. Text is never formatted as currency. */
+export type FinanceColumnValueKind = 'money' | 'text'
+
+/**
+ * One finance column of the grid — the browser-safe view of a
+ * `batch_finance_columns` row, or of a column derived from row data where a
+ * batch has no manifest.
+ *
+ * Column *existence*, order, label, section and kind come from here. The
+ * *value* in any cell comes from the student's own record or installment, and
+ * a column with no value for a student renders blank, never `$0.00`.
+ *
+ * Deliberately not here: the source column letter, the workbook hash, the
+ * sheet name and table key, and the visibility flags. The builder uses them
+ * and drops them; they are not the browser's business.
+ */
+export interface FinanceColumn {
+  /** Stable key for React and for the per-row cell map, e.g. `actual:G`. */
   key: string
-  /** `legacy_column_name` as the workbook spelled it, else the default note. */
+  /** The source heading, trimmed. `Column Q` when the workbook never headed it. */
   label: string
-  /** Source order within the batch's INSTALLMENT FEE STRUCTURE section. */
-  sequence: number
+  section: FinanceColumnSection
+  role: FinanceColumnRole
+  valueKind: FinanceColumnValueKind
+  /** Position within the section. For installment columns, the sequence number. */
+  order: number
+  /** True when the workbook never headed this column. */
+  unheaded: boolean
+  /**
+   * `manifest` when the column comes from `batch_finance_columns`; `derived`
+   * when it was rebuilt from row data because no manifest row described it.
+   */
+  origin: 'manifest' | 'derived'
 }
+
+/**
+ * Where the displayed column layout came from.
+ *
+ * `manifest` — the batch's `batch_finance_columns` rows, which is every
+ * imported batch. `derived` — the union of cells across the rows, which is
+ * the fallback for a batch with no manifest and for the unassigned view, and
+ * which cannot show a column every student left blank. `none` — no columns.
+ */
+export type LayoutSource = 'manifest' | 'derived' | 'none'
 
 /** One imported transaction, as the details drawer shows it. */
 export interface PaymentEntry {
@@ -90,9 +144,9 @@ export interface FinanceGridRow {
   legacyTotalPaid: MoneyCell
   legacyBalance: MoneyCell
 
-  /** Historical ACTUAL-section cells, keyed by `LegacyColumn.key`. */
+  /** Historical ACTUAL-section cells, keyed by `FinanceColumn.key`. */
   actualCells: Record<string, MoneyCell>
-  /** Normalized scheduled amounts, keyed by `ScheduledColumn.key`. */
+  /** Normalized scheduled amounts, keyed by `FinanceColumn.key`. */
   scheduledCells: Record<string, MoneyCell>
 
   payments: PaymentEntry[]
@@ -140,8 +194,17 @@ export interface FinanceGridView {
   /** How the default batch was reached, shown to staff and logged. */
   batchSelectionNote: string
 
-  columns: LegacyColumn[]
-  scheduledColumns: ScheduledColumn[]
+  /** The ACTUAL group, in display order. Only grid-visible columns. */
+  columns: FinanceColumn[]
+  /** The INSTALLMENT group, in sequence order. Only grid-visible columns. */
+  scheduledColumns: FinanceColumn[]
+  layoutSource: LayoutSource
+  /**
+   * Columns the layout lists that no student in this batch has a value in.
+   * They are shown blank — the workbook showed them blank — and this count is
+   * what lets the summary strip say so, once, instead of a marker per cell.
+   */
+  blankStructuralColumns: number
   rows: FinanceGridRow[]
   totals: SummaryTotals
   balanceConvention: BalanceConventionResult

@@ -250,16 +250,23 @@ export function legacyCellToMoney(cell: LegacyCell | undefined): MoneyCell {
   return BLANK_MONEY
 }
 
-/** The resolved columns of one record, keyed the same way as the column list. */
+/**
+ * The resolved columns of one record, keyed the same way as the column list.
+ *
+ * Accepts any column that knows its key and its source letter — a manifest
+ * column or a derived one. A column with no letter (an application-defined
+ * column with no spreadsheet behind it) has no preserved cell to read and is
+ * blank for every historical row.
+ */
 export function historicalCellsForRecord(
   raw: unknown,
-  columns: readonly LegacyColumn[],
+  columns: readonly { key: string; letter: string | null }[],
 ): Record<string, MoneyCell> {
   const cells = legacyCellsOf(raw)
   const out: Record<string, MoneyCell> = {}
 
   for (const column of columns) {
-    out[column.key] = legacyCellToMoney(cells[column.letter])
+    out[column.key] = column.letter === null ? BLANK_MONEY : legacyCellToMoney(cells[column.letter])
   }
 
   return out

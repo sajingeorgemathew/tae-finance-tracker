@@ -126,45 +126,57 @@ table mental model.
 
 Row order is `legacy_source_row`, so the screen reads down the sheet.
 
-## 6. Dynamic historical actual columns
+## 6. Historical actual columns — from the batch column manifest
 
 The batch sheets' ACTUAL section was **not** imported as payments — Tracker
 Master is the transaction source and importing both would count the same money
 twice. Those cells survive only inside
-`student_finance_records.legacy_raw_json`, and the grid rebuilds the columns
-from there.
+`student_finance_records.legacy_raw_json`. The *values* come from there. The
+*columns* come from the batch's column manifest, `batch_finance_columns`,
+introduced by [FINANCE-COLUMN-MANIFEST-03A](FINANCE-COLUMN-MANIFEST-03A.md).
 
-- A column is included when its preserved cell is in section `actual` (a table
-  with an ACTUAL/INSTALLMENT split, money throughout), or in section `flat`
-  (a table with no split) **and** its heading names money. The second rule is
-  what keeps the ECEA roster's Start Date and Payee columns out of the money
-  section — a date serial must not be rendered as a fee.
-- Ordering is spreadsheet position, by column letter converted to an index, so
-  `Z` precedes `AA`. This is the source/header order the ticket asks for.
-- Headings are shown exactly as stored, trimmed. An unheaded column — most
-  sheets' outstanding column has no heading — is labelled `Column M` rather
-  than given a heading the workbook never had.
+- A column exists because the manifest lists it for the batch: every column
+  of the ACTUAL span of a split table, and the money-headed columns of a flat
+  table (the ECEA roster), which keeps Start Date and Payee out of the money
+  group. It exists whether or not any student has a value in it.
+- Ordering is the manifest's `display_order`, which is spreadsheet position.
+- Headings are the manifest's `source_header`, verbatim and trimmed — "Marc"
+  stays "Marc". An unheaded column is labelled `Column M` rather than given a
+  heading the workbook never had.
+- REMARKS and Payer columns are in the manifest as `text` and hidden from the
+  money grid.
 - No universal month list is imposed. A batch that never had a March column
-  does not get one.
+  does not get one; a batch that had one nobody paid in gets a column of em
+  dashes.
+- A cell is blank when the student's preserved row has no value for that
+  letter. It is never `$0.00`. A recorded zero is `$0.00`.
+- Safety net: a letter present in a row's cells that the manifest does not
+  describe is appended as a derived column, so a value cannot be hidden by an
+  incomplete manifest. A batch with no manifest at all, and the unassigned
+  view, fall back to the union-of-cells derivation and say so.
 
-**Known limitation.** The importer omitted blank cells from `legacy_raw_json`
-rather than storing them as nulls, so the column set is the *union of letters
-present across the batch's rows*. A column that every student in a batch left
-empty cannot be recovered and is not displayed. Showing a column that certainly
-holds nothing was judged less valuable than never inventing one; recovering it
-would need the header row preserved at import time.
+The limitation this section previously recorded — that a column every student
+left blank could not be recovered from row data — is resolved by the manifest.
+Twenty-one such columns existed; the fifteen money ones (eight months, six
+Late Fees, ECEA Balance) are displayed again, blank.
 
 ## 7. Scheduled installment group
 
-Rendered from normalized `installments` only — never from an ACTUAL cell.
+Columns from the manifest's `installment` section; values from normalized
+`installments` only — never from an ACTUAL cell.
 
-- Labels come from `legacy_column_name` (the workbook heading), falling back to
-  `custom_note`, then `default_note`.
-- Order is `sequence_number`, which the importer assigned walking the
-  INSTALLMENT FEE STRUCTURE section left to right. Source order, not calendar
-  or alphabetical order.
+- Labels are the manifest's `source_header` (the workbook heading). Where a
+  batch has no installment manifest, the derived fallback labels from
+  `legacy_column_name`, then `custom_note`, then `default_note`.
+- Order is the manifest's `display_order`, which equals the installment's
+  `sequence_number` — the importer assigned both by walking the INSTALLMENT
+  FEE STRUCTURE section left to right. Source order, not calendar or
+  alphabetical order. An installment is placed under the column at its
+  sequence only when its own heading agrees; otherwise it gets a derived
+  column rather than a wrong one.
 - A blank source cell produced no installment row at all, so the cell is blank
-  here. It is never rendered as `$0.00`.
+  here. It is never rendered as `$0.00`, and no installment row is created to
+  fill a manifest column.
 - No month is turned into a date. The workbook states no year, so
   `installment_month` is null by design and stays that way.
 
@@ -290,7 +302,7 @@ Nothing is written to local or session storage.
 
 ## 14. Supabase query strategy
 
-Five requests per render, independent of batch size:
+Seven requests per render, independent of batch size:
 
 1. `programs` — active, ordered by short code.
 2. `batches` — active.
@@ -298,18 +310,22 @@ Five requests per render, independent of batch size:
    in memory for the per-batch student counts. One request instead of 23
    `count` requests to fill one dropdown.
 4. the selected batch's `student_finance_records`, with `students` embedded via
-   PostgREST — not a lookup per row.
-5. and 6. `installments` and `payments` for those record ids, in parallel, each
+   PostgREST — not a lookup per row — and, in parallel,
+5. the selected batch's `batch_finance_columns` (layout fields only; the
+   workbook hash and legacy identifiers never leave the database). Skipped for
+   the unassigned view, which has no batch.
+6. and 7. `installments` and `payments` for those record ids, in parallel, each
    with a single `in (...)`.
 
-No query is issued per student anywhere. A batch of 30 costs the same round
-trips as a batch of 3.
+No query is issued per student anywhere, and one manifest query serves the
+whole batch. A batch of 30 costs the same round trips as a batch of 3.
 
 The payments select projects one JSON key —
 `legacy_receipt_sent:legacy_raw_json->>receipt_sent` — so the database extracts
 it and the rest of the payload never crosses the wire.
 
-Caps: 500 finance records, 2000 installments, 2000 payments, 5000 tally rows.
+Caps: 500 finance records, 500 manifest rows, 2000 installments, 2000 payments,
+5000 tally rows.
 Reaching one sets `truncated`, which the summary strip surfaces rather than
 silently trimming rows off the bottom.
 
@@ -332,8 +348,11 @@ silently trimming rows off the bottom.
 
 ## 16. Known legacy limitations
 
-1. **Blank columns cannot be recovered** (§6). The union-of-cells approach
-   cannot show a column every student in a batch left empty.
+1. **Blank columns are recovered from the manifest, not from row data** (§6).
+   Resolved by FINANCE-COLUMN-MANIFEST-03A for the 23 imported batches. A
+   batch with no manifest rows falls back to the union of cells, which still
+   cannot show a column every student left empty, and the view model reports
+   `layoutSource: 'derived'` when that happens.
 2. **Balance sign convention is verified, not assumed.** `legacy_balance` comes
    from a headed `Outstanding`/`Balance` column on some sheets and an unheaded
    `Total Paid − Total Fee` formula on others. The grid checks the displayed
@@ -383,8 +402,10 @@ receipt workflow should backfill `receipts` rows for historical payments marked
 
 ## 19. Testing
 
-`npm test` — 401 tests, 109 suites, 0 failures (was 333; the 68 added here cover
-this ticket and the importer's own tests remain green).
+`npm test` — 461 tests, 123 suites, 0 failures (401 after this ticket; the 60
+added by FINANCE-COLUMN-MANIFEST-03A cover the manifest planner, the generator's
+committed output, and the manifest-driven grid rules, and every earlier test
+remains green).
 
 The test runner now also matches `src/**/*.test.mts`. The view-model modules are
 plain `.ts` with explicit `.ts` import extensions so Node's test runner can load

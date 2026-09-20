@@ -288,6 +288,87 @@ export async function probeSchema(repoRoot: string): Promise<Record<string, bool
   return presence
 }
 
+/**
+ * A hosted batch, reduced to the fields that identify it.
+ *
+ * Read by the column manifest generator (FINANCE-COLUMN-MANIFEST-03A) to
+ * prove each workbook table maps to exactly one hosted batch before any
+ * layout row is planned against it. Nothing here is about a student.
+ */
+export interface HostedBatchIdentityRow {
+  id: string
+  code: string | null
+  legacySheetName: string | null
+  programShortCode: string | null
+}
+
+export interface BatchIdentityResult {
+  availability: SupabaseAvailability
+  batches: HostedBatchIdentityRow[]
+  error: string | null
+}
+
+/**
+ * Reads every batch's id, code, legacy sheet name and program short code.
+ *
+ * Two small selects — batches and programs — joined in memory. No student
+ * table is touched.
+ */
+export async function readBatchIdentities(repoRoot: string): Promise<BatchIdentityResult> {
+  const connection = connect(repoRoot)
+
+  if (connection === null) {
+    return {
+      availability: {
+        available: false,
+        keyKind: null,
+        reason: 'no Supabase URL and key available; hosted batches were not read',
+      },
+      batches: [],
+      error: null,
+    }
+  }
+
+  const programs = await connection.client.from('programs').select('id, short_code')
+  if (programs.error) {
+    return { availability: connection.availability, batches: [], error: programs.error.message }
+  }
+
+  const shortCodeById = new Map(
+    (programs.data ?? []).map((row) => [
+      String((row as { id: unknown }).id),
+      String((row as { short_code: unknown }).short_code),
+    ]),
+  )
+
+  const batches = await connection.client
+    .from('batches')
+    .select('id, code, legacy_sheet_name, program_id')
+    .order('code')
+  if (batches.error) {
+    return { availability: connection.availability, batches: [], error: batches.error.message }
+  }
+
+  return {
+    availability: connection.availability,
+    batches: (batches.data ?? []).map((row) => {
+      const record = row as {
+        id: unknown
+        code: unknown
+        legacy_sheet_name: unknown
+        program_id: unknown
+      }
+      return {
+        id: String(record.id),
+        code: record.code === null ? null : String(record.code),
+        legacySheetName: record.legacy_sheet_name === null ? null : String(record.legacy_sheet_name),
+        programShortCode: shortCodeById.get(String(record.program_id)) ?? null,
+      }
+    }),
+    error: null,
+  }
+}
+
 /** Table-by-table comparison of two count snapshots. */
 export function diffCounts(
   before: TableCounts,

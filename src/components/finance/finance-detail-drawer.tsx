@@ -7,7 +7,7 @@ import { balanceStateLabel } from '@/lib/finance/grid/balance'
 import { displayMoney } from '@/lib/finance/grid/money'
 import { legacyReceiptExplanation } from '@/lib/finance/grid/receipt-status'
 import { NO_STUDENT_NUMBER } from '@/lib/finance/grid/student-name'
-import type { FinanceGridRow, ScheduledColumn } from '@/lib/finance/grid/types'
+import type { FinanceColumn, FinanceGridRow } from '@/lib/finance/grid/types'
 
 /**
  * One student's finance record, opened from the grid.
@@ -29,7 +29,7 @@ import type { FinanceGridRow, ScheduledColumn } from '@/lib/finance/grid/types'
 
 export interface DetailDrawerProps {
   row: FinanceGridRow | null
-  scheduledColumns: readonly ScheduledColumn[]
+  scheduledColumns: readonly FinanceColumn[]
   onClose: () => void
 }
 

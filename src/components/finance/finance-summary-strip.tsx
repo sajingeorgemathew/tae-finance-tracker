@@ -54,6 +54,22 @@ export function FinanceSummaryStrip({ view }: { view: FinanceGridView }) {
         {view.balanceConvention.note}
       </p>
 
+      {/*
+        Structure is stated once, here, rather than marked on every cell. A
+        column the workbook layout lists and nobody filled in is a fact about
+        the sheet, not about any student, and it contributes nothing to the
+        totals above — not zero, nothing.
+      */}
+      {view.layoutSource === 'manifest' && view.blankStructuralColumns > 0 ? (
+        <p className="mt-1 text-xs text-zinc-500">
+          {view.blankStructuralColumns} column{view.blankStructuralColumns === 1 ? '' : 's'} from
+          this batch&rsquo;s workbook layout hold{view.blankStructuralColumns === 1 ? 's' : ''} no
+          figure for any student. {view.blankStructuralColumns === 1 ? 'It is' : 'They are'} shown
+          blank, as the workbook showed {view.blankStructuralColumns === 1 ? 'it' : 'them'}, and
+          not as $0.00.
+        </p>
+      ) : null}
+
       {view.truncated ? (
         <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
           This batch returned more rows than the page loads at once, so the figures above may not

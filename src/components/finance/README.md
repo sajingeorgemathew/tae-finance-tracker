@@ -23,3 +23,11 @@ wired to a placeholder handler.
 
 The view model they render is built server-side in `src/lib/finance/grid/`; no
 database row or `legacy_raw_json` payload reaches the browser.
+
+Column *structure* — which ACTUAL and INSTALLMENT columns a batch has, their
+order and headings — comes from the batch's column manifest
+(`batch_finance_columns`, FINANCE-COLUMN-MANIFEST-03A). The grid renders every
+visible manifest column whether or not any row fills it, so a month nobody paid
+in is a column of em dashes, as it was in Excel. Headings right-align by the
+column's `valueKind`, never by guessing from its key. The summary strip states
+once how many such structural blank columns the batch has.

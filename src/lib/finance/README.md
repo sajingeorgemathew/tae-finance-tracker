@@ -23,9 +23,10 @@ in a Client Component and in a test. Only `grid/load.ts` queries.
 
 | Module | Contents |
 | --- | --- |
-| `load.ts` | The only module here that queries. Five bounded requests per render; no query per student. |
-| `view-model.ts` | Builds the grid from plain row shapes. Pure, and the single place the historical-vs-normalized rules live. |
-| `legacy-cells.ts` | Rebuilds a batch's historical columns from preserved `legacy_raw_json` cells. |
+| `load.ts` | The only module here that queries. Seven bounded requests per render — one of them the selected batch's column manifest; no query per student. |
+| `view-model.ts` | Builds the grid from plain row shapes. Pure, and the single place the historical-vs-normalized rules live. Column *structure* comes from the manifest; cell *values* from the rows. |
+| `manifest.ts` | Resolves `batch_finance_columns` rows into columns: label from the verbatim heading, role and kind as metadata, hidden columns kept for accounting and dropped before the browser. See `docs/FINANCE-COLUMN-MANIFEST-03A.md`. |
+| `legacy-cells.ts` | Reads a record's preserved `legacy_raw_json` cells by column letter, and derives columns from row data where a batch has no manifest. |
 | `money.ts` | `MoneyCell` and CAD formatting. A blank is never `$0.00`. |
 | `balance.ts` | Verifies a batch's balance sign convention before any balance filter is offered. |
 | `receipt-status.ts` | Historical receipt status from the workbook's own `Receipt Sent` values. |
@@ -40,6 +41,9 @@ Two rules this directory exists to enforce:
    workbook said. A calculated figure is a separate, separately-labelled number.
 2. **Notes resolve to `custom_note ?? default_note`.** Read them through
    `effectiveNote()`; never render `custom_note` directly.
+3. **A column exists because the manifest says so; a cell has a value because
+   the row says so.** Where the two meet with no value, the cell is blank and
+   never `$0.00`. No placeholder is written back to make the shape come out.
 
 Not here yet, by ticket scope: receipt numbering and PDF generation
 (FINANCE-RECEIPTS), workbook import (FINANCE-IMPORT-02), email delivery, and any
