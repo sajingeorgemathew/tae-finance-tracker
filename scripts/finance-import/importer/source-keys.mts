@@ -150,3 +150,22 @@ export function installmentSourceKey(
 ): string {
   return sourceKey(hash, 'installment', sheet, row, columnLetter, section)
 }
+
+/**
+ * workbook hash + sheet + detected table key + section + source column letter.
+ *
+ * The identity of one *column* of one batch table, for the batch column
+ * manifest (FINANCE-COLUMN-MANIFEST-03A). Keyed on the column's position in
+ * the workbook rather than its heading, because headings repeat — "Total Fee"
+ * appears in both the ACTUAL and the INSTALLMENT section of every PSW table —
+ * and the section is included for the same reason.
+ */
+export function batchFinanceColumnSourceKey(
+  hash: string,
+  sheet: string,
+  table: string,
+  section: string,
+  columnLetter: string,
+): string {
+  return sourceKey(hash, 'batch-finance-column', sheet, table, section, columnLetter)
+}

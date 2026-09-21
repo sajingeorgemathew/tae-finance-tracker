@@ -97,6 +97,9 @@ finance-import/
     report-fixtures.mts    one plan full of people, for both reports' privacy tests
     rls-verification.mts   reads back as the application does, never as service role
     supabase-write.mts     the only module that writes. Service role only.
+    batch-tables.mts       table discovery, shared by the plan and the manifest (03A)
+    column-manifest.mts    the batch column layout: plan, match, render, privacy gate (03A)
+  generate-column-manifest.mts  03A entry point: dry run, --write-migration, --check
 ```
 
 ## `finance-import/` — FINANCE-IMPORT-02 Phase B2
@@ -168,6 +171,85 @@ verification is data rather than prose appended after the fact, so the whole
 document regenerates rather than all but its last section. `--check` renders
 and compares without writing: that is how a reviewer confirms the committed
 report is what these inputs produce.
+
+## `finance-import/` — FINANCE-COLUMN-MANIFEST-03A
+
+```
+npm run finance:manifest                       dry run: plan and report, write nothing committable
+npm run finance:manifest -- --write-migration   also (re)write the data migration
+npm run finance:manifest -- --check             verify the committed migration is current
+```
+
+Derives each imported batch's **column layout** — which finance columns
+existed, in what order, headed how, in which section, holding money or text —
+from the workbook, using the importer's own block detection
+(`importer/batch-tables.mts` is the table-discovery half of the import
+planner, lifted out so the two cannot diverge). The layout is written as a
+source-controlled SQL data migration; see `docs/FINANCE-COLUMN-MANIFEST-03A.md`.
+
+| Output | Committed? |
+| --- | --- |
+| `.private/finance-import-analysis/column-manifest-plan.json` | **No** — Git-ignored, though it holds layout only. |
+| `supabase/migrations/20260920120100_batch_finance_columns_legacy_manifest.sql` | Yes. Generated; 383 rows of batch codes, sheet names, column letters and headings. |
+
+Three things to know:
+
+* **The workbook is not required at application runtime.** The application
+  reads `batch_finance_columns`; the generated migration is what a fresh
+  environment runs. The workbook is needed only here, to reproduce or audit
+  that migration from its source — `--check` is how a reviewer confirms the
+  committed file is what the workbook produces, and a test does the same when
+  the workbook is present.
+* **The migration is already source-controlled.** Regenerating it in place is
+  a no-op unless the rules change; a new migration per run would apply the
+  same rows twice. Every row's id is the importer's v5 UUID over a source key
+  (`batchFinanceColumnSourceKey`), and the migration is `on conflict do nothing`.
+* **Nothing about a student reaches the artifact.** The generator refuses to
+  write a migration containing any string literal that is not exactly a value
+  of the layout — a whitelist computed from the plan, not a heuristic — and
+  `importer/column-manifest.test.mts` checks it against fixtures with known
+  names, numbers and amounts.
+
+The dry run reads hosted `batches` and `programs` (read-only, through
+`importer/supabase-readonly.mts`) to prove each table maps to exactly one batch
+by deterministic id **and** batch code. Any ambiguity or gap blocks the whole
+plan; nothing partial is written. It never writes to the database — applying
+the migration is a separate, reviewed `supabase db push`.
+
+## `finance-qa/` — FINANCE-GRID-03B
+
+```
+npm run finance:reconcile        reconcile every batch grid against the workbook (read-only)
+npm run finance:ui-acceptance    drive /finance in headless Chrome against a local dev server
+```
+
+Read-only QA tooling for the finance grid. Neither script writes to Supabase,
+to `reference/`, or to anything committed.
+
+* **`reconcile-grid.mts`** parses the workbook with the importer's own table
+  discovery, reads the hosted rows through an authenticated *admin session
+  under Row Level Security* (never the service role — see `hosted-session.mts`),
+  builds each batch with the application's own `buildFinanceGrid`, and compares
+  the two cell by cell, joined on the importer's deterministic ids. It also
+  checks the hosted column manifest field by field against the workbook-derived
+  plan, and audits the unassigned records. Row-level output (names, numbers,
+  amounts) goes to `.private/finance-qa/`; the aggregate it prints is the
+  source for `docs/FINANCE-GRID-03-ACCEPTANCE.md`.
+* **`browser-acceptance.mts`** launches the installed Chrome headless, attaches
+  over the DevTools protocol with Node's built-in WebSocket, signs in with the
+  same one-time-token session, and walks the staff workflow: selectors,
+  search, scrolling, frozen columns (a pixel comparison of the frozen region
+  before and after scrolling), selection, the drawer, URL state and history,
+  ECEA and Unassigned. Screenshots go to `.private/finance-qa/screenshots/`.
+* **`loader-request-count.mts`** runs the real `src/lib/finance/grid/load.ts`
+  under Node (its companion `.hooks.mts` stubs `server-only` and
+  `next/headers`) and counts the REST requests per render, to show the query
+  strategy is bounded regardless of batch size.
+
+`hosted-session.mts` uses the service-role key for exactly two administrative
+calls — finding the active admin profile and minting a one-time magic-link
+token for it — and exchanges the token with the publishable key. Every data
+read then goes through that user session and RLS.
 
 Four rules hold across both phases:
 
