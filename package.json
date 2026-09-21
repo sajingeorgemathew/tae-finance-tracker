@@ -13,7 +13,9 @@
     "finance:import:dry-run": "node scripts/finance-import/import-workbook.mts",
     "finance:import:apply": "node scripts/finance-import/import-workbook.mts --apply",
     "finance:import:apply-report": "node scripts/finance-import/regenerate-apply-report.mts",
-    "finance:manifest": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-import/generate-column-manifest.mts"
+    "finance:manifest": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-import/generate-column-manifest.mts",
+    "finance:reconcile": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-qa/reconcile-grid.mts",
+    "finance:ui-acceptance": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-qa/browser-acceptance.mts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

@@ -108,7 +108,16 @@ export function FinanceGrid({
 
   return (
     <div className="relative overflow-auto rounded-md border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-      <table className="w-max min-w-full border-collapse text-[13px]">
+      {/*
+        Separate borders, not collapsed. A collapsed border is shared between
+        two cells and neither cell's background paints under it, so when the
+        grid scrolls sideways a one-pixel sliver of the scrolled cells shows
+        through between the frozen Identity columns. With separate borders
+        each frozen cell paints its own background edge to edge and nothing
+        bleeds through. Row borders are therefore on the cells: a border on a
+        <tr> renders only in the collapsed model.
+      */}
+      <table className="w-max min-w-full border-separate border-spacing-0 text-[13px]">
         <caption className="sr-only">
           Historical finance figures for the selected batch, as recorded in the source workbook.
         </caption>
@@ -148,7 +157,7 @@ export function FinanceGrid({
           {table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              className="group border-b border-zinc-100 last:border-b-0 hover:bg-sky-50/70 dark:border-zinc-900 dark:hover:bg-sky-950/30"
+              className="group hover:bg-sky-50/70 dark:hover:bg-sky-950/30"
             >
               {row.getAllCells().map((cell) => {
                 const frozen = frozenOffset(cell.column.id)
@@ -157,7 +166,7 @@ export function FinanceGrid({
                     key={cell.id}
                     style={frozen === null ? undefined : { left: frozen, width: widthOf(cell.column.id) }}
                     className={cn(
-                      'border-r border-zinc-100 px-2 py-1 align-middle last:border-r-0 dark:border-zinc-900',
+                      'border-r border-b border-zinc-100 px-2 py-1 align-middle last:border-r-0 group-last:border-b-0 dark:border-zinc-900',
                       frozen !== null &&
                         'sticky z-10 bg-white group-hover:bg-sky-50/70 dark:bg-zinc-950 dark:group-hover:bg-sky-950/30',
                     )}
