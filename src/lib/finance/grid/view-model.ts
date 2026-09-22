@@ -71,6 +71,7 @@ import type { Session } from './intake.ts'
 import { paymentStatusFromBalanceState } from './payment-status.ts'
 import { summarizeLegacyReceipts } from './receipt-status.ts'
 import { resolveStudentName, type NamedStudent } from './student-name.ts'
+import { unassignedReasonOf } from './unassigned.ts'
 import type {
   FinanceColumn,
   FinanceGridRow,
@@ -124,6 +125,11 @@ export interface RawPayment {
    * the payment's provenance never leaves the database.
    */
   legacy_receipt_sent: string | null
+  /**
+   * `legacy_raw_json -> 'batch' ->> 'formatted_text'`: the Tracker Master
+   * Batch cell as Excel displayed it, e.g. `Aug-25`. Extracted the same way.
+   */
+  legacy_batch_hint: string | null
 }
 
 export interface BuildGridInput {
@@ -333,6 +339,7 @@ function toPaymentEntry(payment: RawPayment): PaymentEntry {
     legacyReceiptSent: payment.legacy_receipt_sent?.trim() || null,
     note: payment.note?.trim() || null,
     voided: payment.voided_at !== null,
+    legacyBatchHint: payment.legacy_batch_hint?.trim() || null,
   }
 }
 
@@ -529,6 +536,16 @@ export function buildFinanceGrid(input: BuildGridInput): BuiltGrid {
       batchId: input.batchId ?? null,
       batchName: input.batchName,
       session: input.session ?? null,
+      // The reason is a fact about an unassigned record only. A batch record's
+      // raw JSON is a workbook row, and is not asked.
+      unassignedReason: record.batch_id === null ? unassignedReasonOf(record.legacy_raw_json) : null,
+      sourceBatchHints: [
+        ...new Set(
+          payments
+            .map((payment) => payment.legacyBatchHint)
+            .filter((hint): hint is string => hint !== null),
+        ),
+      ],
 
       legacyTotalFee: fee,
       legacyTotalPaid: paid,

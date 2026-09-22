@@ -29,12 +29,10 @@
  * the same folder for the committed acceptance report to cite.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-
-import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { APPROVED_WORKBOOK_SHA256 } from '../finance-import/importer/apply-preflight.mts'
 import { discoverBatchTables, type SupportedBatchTable } from '../finance-import/importer/batch-tables.mts'
@@ -69,65 +67,22 @@ import {
 } from '../../src/lib/finance/grid/view-model.ts'
 
 import { openHostedSession, type HostedSession } from './hosted-session.mts'
+import {
+  readLoaderProjection,
+  selectAll,
+  type HostedBatch,
+  type HostedProgram,
+  type LoaderProjection,
+} from './hosted-reads.mts'
+import { batchMatchesMonthText } from './unassigned-forensics.mts'
 
 const PRIVATE_DIR = path.join('.private', 'finance-qa')
 
 const EPSILON = 0.005
 
 // -----------------------------------------------------------------------------
-// The loader's own projections, read from its source so the two cannot drift
-// -----------------------------------------------------------------------------
-
-interface LoaderProjection {
-  records: string
-  installments: string
-  payments: string
-  manifest: string
-}
-
-/**
- * Pulls the four `select(...)` strings out of `src/lib/finance/grid/load.ts`.
- *
- * `load.ts` is `server-only` and cannot be imported here, and copying the
- * strings by hand is how a QA tool ends up checking a projection the page no
- * longer uses. Reading them from the file is the honest alternative.
- */
-function readLoaderProjection(repoRoot: string): LoaderProjection {
-  const source = readFileSync(path.join(repoRoot, 'src', 'lib', 'finance', 'grid', 'load.ts'), 'utf8')
-
-  const pick = (name: string): string => {
-    const match = new RegExp(`const ${name} =\\s*(?:\`([^\`]*)\`|'([^']*)')`).exec(source)
-    if (!match) throw new Error(`could not find ${name} in load.ts`)
-    return (match[1] ?? match[2]).replace(/\s+/g, ' ').trim()
-  }
-
-  return {
-    records: pick('RECORD_COLUMNS'),
-    installments: pick('INSTALLMENT_COLUMNS'),
-    payments: pick('PAYMENT_COLUMNS'),
-    manifest: pick('MANIFEST_COLUMNS'),
-  }
-}
-
-// -----------------------------------------------------------------------------
 // Hosted reads — authenticated, paged, read-only
 // -----------------------------------------------------------------------------
-
-interface HostedProgram {
-  id: string
-  name: string
-  short_code: string
-}
-
-interface HostedBatch {
-  id: string
-  program_id: string
-  name: string
-  code: string | null
-  legacy_sheet_name: string | null
-  start_date: string | null
-  active: boolean
-}
 
 interface HostedManifestRow extends RawManifestColumn {
   id: string
@@ -137,28 +92,6 @@ interface HostedManifestRow extends RawManifestColumn {
   legacy_sheet_name: string | null
   legacy_table_key: string | null
   source_workbook_hash: string | null
-}
-
-async function selectAll<T>(
-  client: SupabaseClient,
-  table: string,
-  columns: string,
-  orderBy: string,
-  pageSize = 1000,
-): Promise<T[]> {
-  const out: T[] = []
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await client
-      .from(table)
-      .select(columns)
-      .order(orderBy)
-      .range(from, from + pageSize - 1)
-    if (error) throw new Error(`read ${table}: ${error.message}`)
-    const rows = (data ?? []) as T[]
-    out.push(...rows)
-    if (rows.length < pageSize) break
-  }
-  return out
 }
 
 interface HostedRecord extends RawFinanceRecord {
@@ -1231,37 +1164,6 @@ function auditUnassigned(
     candidates,
     gridView,
   }
-}
-
-const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
-
-/**
- * Whether a batch is the month and year a Tracker Master Batch cell names.
- *
- * The cell text is `Mon-YY`. A batch matches on its start date's month and
- * year, or, where the importer refused to invent a start date, on its name
- * stating that month with a year ending in the same two digits or no year
- * at all ("December - Evening"). Deliberately loose in the human's favour,
- * and never used to assign anything.
- */
-function batchMatchesMonthText(batch: HostedBatch, text: string): boolean {
-  const match = /^([A-Za-z]{3,9})[-\s']+(\d{2,4})$/.exec(text.trim())
-  if (!match) return false
-  const month = MONTH_NAMES.findIndex((name) => name.startsWith(match[1].toLowerCase().slice(0, 3)))
-  if (month === -1) return false
-  const yearDigits = match[2].slice(-2)
-
-  if (batch.start_date !== null) {
-    return (
-      batch.start_date.slice(5, 7) === String(month + 1).padStart(2, '0') &&
-      batch.start_date.slice(2, 4) === yearDigits
-    )
-  }
-
-  const name = batch.name.toLowerCase()
-  if (!new RegExp(`\\b${MONTH_NAMES[month]}\\b`).test(name)) return false
-  const yearInName = /\b(\d{2,4})\b/.exec(name)
-  return yearInName === null || yearInName[1].slice(-2) === yearDigits
 }
 
 // -----------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import type { FinanceIntake, IntakeBatch, Session } from './intake.ts'
 import type { MoneyCell } from './money.ts'
 import type { PaymentStatus, PaymentStatusCounts } from './payment-status.ts'
 import type { LegacyReceiptStatus, LegacyReceiptSummary } from './receipt-status.ts'
+import type { UnassignedReason } from './unassigned.ts'
 
 /** A program, as the selector shows it. */
 export interface ProgramOption {
@@ -133,6 +134,12 @@ export interface PaymentEntry {
   note: string | null
   /** Payments are voided, never deleted, so a voided one is still shown. */
   voided: boolean
+  /**
+   * The workbook's own Tracker Master `Batch` cell text, e.g. `Aug-25`. A month
+   * and a year — never a cohort, never used to place the payment. Shown as a
+   * hint, verbatim.
+   */
+  legacyBatchHint: string | null
 }
 
 /** Why a row carries the subtle legacy indicator. Generic, never accusatory. */
@@ -155,6 +162,17 @@ export interface FinanceGridRow {
   batchName: string | null
   /** The cohort the underlying batch's name states. Null for ECEA and unassigned. */
   session: Session | null
+  /**
+   * Why the import left this record with no batch (RECONCILE-04A). Set only
+   * when `batchId` is null; null for every batch record and for an unassigned
+   * record whose reason was not preserved. Explains history; decides nothing.
+   */
+  unassignedReason: UnassignedReason | null
+  /**
+   * The distinct Tracker Master `Batch` cell texts behind this record's
+   * payments, in payment order. A month and a year each, shown as a hint.
+   */
+  sourceBatchHints: string[]
 
   /** Snapshot fields, exactly as imported. Never recomputed. */
   legacyTotalFee: MoneyCell

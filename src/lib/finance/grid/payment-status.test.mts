@@ -67,6 +67,7 @@ function payment(partial: Partial<RawPayment> = {}): RawPayment {
     note: null,
     voided_at: null,
     legacy_receipt_sent: 'YES',
+    legacy_batch_hint: null,
     ...partial,
   }
 }

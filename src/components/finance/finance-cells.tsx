@@ -13,6 +13,11 @@ import {
   type LegacyReceiptSummary,
 } from '@/lib/finance/grid/receipt-status'
 import type { LegacyFlag } from '@/lib/finance/grid/types'
+import {
+  unassignedReasonExplanation,
+  unassignedReasonLabel,
+  type UnassignedReason,
+} from '@/lib/finance/grid/unassigned'
 import { cn } from '@/lib/utils'
 
 /**
@@ -265,6 +270,51 @@ export function ReminderCell() {
       title="No reminder has been sent from this system. Reminder sending arrives in a later workflow; nothing is claimed to be overdue."
     >
       Never sent
+    </span>
+  )
+}
+
+/**
+ * Why an unassigned record has no batch (FINANCE-RECONCILE-04A).
+ *
+ * The same neutral outline as the Session badge: it is a fact about how the
+ * import routed the row, not a status and not a verdict. The tooltip states
+ * the routing rule so staff can tell "two tables list this student" from
+ * "no table does" without opening the drawer.
+ */
+export function UnassignedReasonBadge({ reason }: { reason: UnassignedReason | null }) {
+  const explanation = unassignedReasonExplanation(reason)
+  return (
+    <span
+      title={explanation}
+      aria-label={`${unassignedReasonLabel(reason)}. ${explanation}`}
+      data-unassigned-reason={reason ?? 'unknown'}
+      className="inline-flex cursor-help items-center rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[11px] leading-4 whitespace-nowrap text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+    >
+      {unassignedReasonLabel(reason)}
+    </span>
+  )
+}
+
+/**
+ * How many imported Tracker Master payments a record holds.
+ *
+ * A count, stated as a count. Zero reads "None" so a record with no payment
+ * is visibly a record with no payment rather than a row that failed to load.
+ * Nothing here is a balance, and the tooltip says so.
+ */
+export function PaymentCountCell({ count }: { count: number }) {
+  const title =
+    count === 0
+      ? 'No imported Tracker Master payment is tied to this record.'
+      : `${count} imported Tracker Master payment${count === 1 ? '' : 's'} tied to this record. Open Details for the list. This is a transaction count, not a balance.`
+  return count === 0 ? (
+    <span className="text-[12px] text-zinc-400 italic dark:text-zinc-600" title={title}>
+      None
+    </span>
+  ) : (
+    <span className="tabular-nums" title={title}>
+      {count}
     </span>
   )
 }

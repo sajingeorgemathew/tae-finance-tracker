@@ -5,10 +5,12 @@ import { useMemo, type ReactNode } from 'react'
 import {
   LegacyBadge,
   Money,
+  PaymentCountCell,
   PaymentStatusBadge,
   ReceiptBadge,
   ReminderCell,
   SessionBadge,
+  UnassignedReasonBadge,
 } from '@/components/finance/finance-cells'
 import { BLANK_MONEY } from '@/lib/finance/grid/money'
 import {
@@ -99,6 +101,13 @@ export interface FinanceGridProps {
   scheduledColumns: FinanceColumn[]
   /** Whether any row states a session. When none does, the column is not shown. */
   showSession: boolean
+  /**
+   * The Unassigned view (FINANCE-RECONCILE-04A). Those records have no batch
+   * sheet behind them, so no ACTUAL or INSTALLMENT group exists for them;
+   * their imported Tracker Master payments are shown as a group of their own
+   * instead, so a row with real money behind it does not read as empty.
+   */
+  unassigned?: boolean
   rowSelection: RowSelection
   onRowSelectionChange: (next: RowSelection) => void
   onOpenDetails: (row: FinanceGridRow) => void
@@ -109,6 +118,7 @@ export function FinanceGrid({
   columns,
   scheduledColumns,
   showSession,
+  unassigned = false,
   rowSelection,
   onRowSelectionChange,
   onOpenDetails,
@@ -123,6 +133,7 @@ export function FinanceGrid({
         historical: columns,
         scheduled: scheduledColumns,
         showSession,
+        unassigned,
         onOpenDetails,
         selectAll: (
           <input
@@ -147,6 +158,7 @@ export function FinanceGrid({
       columns,
       scheduledColumns,
       showSession,
+      unassigned,
       onOpenDetails,
       allSelected,
       someSelected,
@@ -230,6 +242,8 @@ export function FinanceGrid({
           {rows.map((row) => (
             <tr
               key={row.financeRecordId}
+              data-record-id={row.financeRecordId}
+              data-payment-count={row.paymentCount}
               data-batch-id={row.batchId ?? undefined}
               data-session={row.session ?? undefined}
               data-status={row.paymentStatus}
@@ -346,6 +360,7 @@ function buildGroups(input: {
   historical: readonly FinanceColumn[]
   scheduled: readonly FinanceColumn[]
   showSession: boolean
+  unassigned: boolean
   onOpenDetails: (row: FinanceGridRow) => void
   selectAll: ReactNode
   isSelected: (row: FinanceGridRow) => boolean
@@ -494,6 +509,70 @@ function buildGroups(input: {
     columns: input.scheduled.map((column) => financeColumn(column, 'scheduledCells')),
   }
 
+  // The Unassigned view's stand-in for the two groups above (RECONCILE-04A).
+  // Every figure here is normalized Tracker Master data: a count of payments,
+  // their sum, the newest date, the workbook's own Batch cell and the routing
+  // outcome. None of it is a fee, a balance or a schedule, and the headings
+  // say "payments" so the sum is never read as one.
+  const transactions: GridGroup = {
+    id: 'transactions',
+    label: 'Imported transactions (Tracker Master)',
+    freeze: null,
+    columns: [
+      {
+        id: 'paymentCount',
+        header: 'Payments',
+        align: 'right',
+        freeze: null,
+        cell: (row) => <PaymentCountCell count={row.paymentCount} />,
+      },
+      {
+        id: 'paymentTotal',
+        header: 'Payments total',
+        align: 'right',
+        freeze: null,
+        // Blank when there is no payment: a sum over nothing is not $0.00.
+        cell: (row) => <Money cell={row.paymentTotal} />,
+      },
+      {
+        id: 'lastPayment',
+        header: 'Last payment',
+        align: 'left',
+        freeze: null,
+        cell: (row) =>
+          row.lastPaymentDate === null ? (
+            <span className="text-zinc-300 dark:text-zinc-700">—</span>
+          ) : (
+            <span className="tabular-nums whitespace-nowrap">{row.lastPaymentDate}</span>
+          ),
+      },
+      {
+        id: 'sourceBatch',
+        header: 'Source batch cell',
+        align: 'left',
+        freeze: null,
+        cell: (row) =>
+          row.sourceBatchHints.length === 0 ? (
+            <span className="text-zinc-300 dark:text-zinc-700">—</span>
+          ) : (
+            <span
+              className="whitespace-nowrap text-zinc-600 dark:text-zinc-400"
+              title="The Tracker Master Batch cell as the workbook shows it: a month and a year. It cannot tell Morning from Evening and was not used to place the record."
+            >
+              {row.sourceBatchHints.join(', ')}
+            </span>
+          ),
+      },
+      {
+        id: 'unassignedReason',
+        header: 'Why unassigned',
+        align: 'left',
+        freeze: null,
+        cell: (row) => <UnassignedReasonBadge reason={row.unassignedReason} />,
+      },
+    ],
+  }
+
   const actions: GridGroup = {
     id: 'actions',
     label: 'Actions',
@@ -544,13 +623,15 @@ function buildGroups(input: {
   // empty banner. Two views reach this: an ECEA intake, which has no scheduled
   // installments at all, and the unassigned records, which have no batch sheet
   // behind them and so no ACTUAL section either. In both cases an empty banner
-  // would imply the columns exist and failed to load.
+  // would imply the columns exist and failed to load. The unassigned records
+  // get the transactions group in that space instead.
   return [
     student,
     status,
     history,
     ...(actual.columns.length > 0 ? [actual] : []),
     ...(installments.columns.length > 0 ? [installments] : []),
+    ...(input.unassigned ? [transactions] : []),
     actions,
   ]
 }

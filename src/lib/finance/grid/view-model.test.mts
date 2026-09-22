@@ -80,6 +80,7 @@ function payment(partial: Partial<RawPayment> = {}): RawPayment {
     note: null,
     voided_at: null,
     legacy_receipt_sent: 'YES',
+    legacy_batch_hint: null,
     ...partial,
   }
 }
@@ -559,5 +560,89 @@ describe('rows read down the sheet the way staff remember', () => {
       grid.rows.map((row) => row.financeRecordId),
       ['earlier', 'later'],
     )
+  })
+})
+
+// -----------------------------------------------------------------------------
+// FINANCE-RECONCILE-04A — the unassigned records
+// -----------------------------------------------------------------------------
+
+describe('unassigned records carry their reason and their transactions, and nothing invented', () => {
+  const UNASSIGNED = { programShortCode: 'PSW', batchName: null, batchId: null }
+
+  it('reads the importer reason only for a record with no batch', () => {
+    const grid = buildFinanceGrid({
+      records: [
+        record({ id: 'u-1', batch_id: null, legacy_source_row: null, legacy_raw_json: { unassigned_reason: 'ambiguous_batch' } }),
+        record({ id: 'b-1', batch_id: 'batch-1', legacy_raw_json: { unassigned_reason: 'ambiguous_batch', cells: {} } }),
+      ],
+      installments: [],
+      payments: [],
+      ...UNASSIGNED,
+    })
+    const byId = new Map(grid.rows.map((row) => [row.financeRecordId, row]))
+    assert.equal(byId.get('u-1')?.unassignedReason, 'ambiguous_batch')
+    assert.equal(byId.get('b-1')?.unassignedReason, null)
+  })
+
+  it('counts and sums the imported payments, lists the distinct source batch cells, and needs no manifest for it', () => {
+    const grid = buildFinanceGrid({
+      records: [record({ id: 'u-1', batch_id: null, legacy_source_row: null, legacy_raw_json: { unassigned_reason: 'batch_not_found' } })],
+      installments: [],
+      payments: [
+        payment({ student_finance_record_id: 'u-1', amount: '600.00', payment_date: '2025-12-02', legacy_batch_hint: 'Dec-25' }),
+        payment({ student_finance_record_id: 'u-1', amount: '200.00', payment_date: '2026-01-31', legacy_batch_hint: 'Dec-25' }),
+        payment({ student_finance_record_id: 'u-1', amount: '0.00', payment_date: null, legacy_batch_hint: ' ' }),
+      ],
+      manifest: [],
+      ...UNASSIGNED,
+    })
+    const row = grid.rows[0]
+    assert.equal(grid.layoutSource, 'none')
+    assert.equal(grid.columns.length, 0)
+    assert.equal(row.paymentCount, 3)
+    assert.equal(displayMoney(row.paymentTotal), '$800.00')
+    assert.equal(row.lastPaymentDate, '2026-01-31')
+    assert.deepEqual(row.sourceBatchHints, ['Dec-25'])
+    assert.deepEqual(
+      row.payments.map((entry) => entry.legacyBatchHint),
+      ['Dec-25', 'Dec-25', null],
+    )
+  })
+
+  it('shows a record with no payment as none, with a blank total, and fabricates no fee, paid or balance', () => {
+    const grid = buildFinanceGrid({
+      records: [record({ id: 'u-0', batch_id: null, legacy_source_row: null, legacy_raw_json: { unassigned_reason: 'missing_student_id' }, student: { id: 's', student_number: null, first_name: null, middle_name: null, last_name: null, display_name: null, legacy_name: null } })],
+      installments: [],
+      payments: [],
+      ...UNASSIGNED,
+    })
+    const row = grid.rows[0]
+    assert.equal(row.paymentCount, 0)
+    assert.equal(row.paymentTotal.kind, 'blank')
+    assert.equal(row.lastPaymentDate, null)
+    assert.deepEqual(row.sourceBatchHints, [])
+    assert.equal(row.legacyTotalFee.kind, 'blank')
+    assert.equal(row.legacyTotalPaid.kind, 'blank')
+    assert.equal(row.legacyBalance.kind, 'blank')
+    assert.equal(row.paymentStatus, 'unknown')
+    assert.equal(row.unassignedReason, 'missing_student_id')
+    assert.equal(row.studentName, 'Unnamed student')
+  })
+
+  it('never turns a payments total into a balance or a total paid', () => {
+    const grid = buildFinanceGrid({
+      records: [record({ id: 'u-2', batch_id: null, legacy_source_row: null, legacy_total_fee: '6600.00', legacy_raw_json: { unassigned_reason: 'batch_not_found' } })],
+      installments: [],
+      payments: [payment({ student_finance_record_id: 'u-2', amount: '600.00' })],
+      ...UNASSIGNED,
+    })
+    const row = grid.rows[0]
+    assert.equal(displayMoney(row.legacyTotalFee), '$6,600.00')
+    assert.equal(row.legacyTotalPaid.kind, 'blank')
+    assert.equal(row.legacyBalance.kind, 'blank')
+    assert.equal(displayMoney(row.paymentTotal), '$600.00')
+    assert.equal(grid.totals.totalPaid.kind, 'blank')
+    assert.equal(grid.totals.balance.kind, 'blank')
   })
 })

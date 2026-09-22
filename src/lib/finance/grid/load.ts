@@ -56,10 +56,10 @@ import type { BatchOption, FinanceGridView, ProgramOption } from './types.ts'
  * Step 3 reads one uuid column across all 397 finance records rather than
  * issuing a count per batch, which would be 23 requests to fill one dropdown.
  *
- * Payments are the one place a `legacy_raw_json` field is read, and only one
- * key of it: `receipt_sent`, extracted by the database with `->>` so the rest
- * of the payload — routing notes, workbook formulas, the row-local Balance Fees
- * formula — never crosses the wire at all.
+ * Payments are the one place a `legacy_raw_json` field is read, and only two
+ * keys of it: `receipt_sent` and the `batch` cell's display text, extracted by
+ * the database with `->>` so the rest of the payload — routing notes, workbook
+ * formulas, the row-local Balance Fees formula — never crosses the wire at all.
  */
 
 /** Intake records are small; this is a guard against a missing filter, not a page size. */
@@ -82,13 +82,16 @@ const INSTALLMENT_COLUMNS =
   'id, student_finance_record_id, sequence_number, scheduled_amount, legacy_column_name, default_note, custom_note'
 
 /**
- * `legacy_receipt_sent` is a projection of one JSON key, not the column.
- * PostgREST evaluates `->>` server-side, so the browser-bound view model is
- * built without the full payload ever being fetched. Tracker Master's
- * `Balance Fees` is not selected, here or anywhere.
+ * `legacy_receipt_sent` and `legacy_batch_hint` are projections of two JSON
+ * keys, not the column. PostgREST evaluates `->` and `->>` server-side, so the
+ * browser-bound view model is built without the full payload ever being
+ * fetched. The batch hint is the Tracker Master `Batch` cell as Excel showed
+ * it (`Aug-25`): a month, surfaced as a hint on the unassigned records
+ * (RECONCILE-04A), never used to place anything. Tracker Master's `Balance
+ * Fees` is not selected, here or anywhere.
  */
 const PAYMENT_COLUMNS =
-  'id, student_finance_record_id, amount, payment_date, payment_method, note, voided_at, legacy_receipt_sent:legacy_raw_json->>receipt_sent'
+  'id, student_finance_record_id, amount, payment_date, payment_method, note, voided_at, legacy_receipt_sent:legacy_raw_json->>receipt_sent, legacy_batch_hint:legacy_raw_json->batch->>formatted_text'
 
 /**
  * The layout fields only, plus the batch each row belongs to so a two-batch
