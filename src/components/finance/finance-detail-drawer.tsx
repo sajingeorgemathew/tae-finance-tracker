@@ -8,6 +8,7 @@ import {
   PaymentStatusBadge,
   ReceiptBadge,
   SessionBadge,
+  UnassignedReasonBadge,
 } from '@/components/finance/finance-cells'
 import type { FinanceIntake } from '@/lib/finance/grid/intake'
 import { displayMoney } from '@/lib/finance/grid/money'
@@ -15,6 +16,7 @@ import { paymentStatusExplanation } from '@/lib/finance/grid/payment-status'
 import { legacyReceiptExplanation } from '@/lib/finance/grid/receipt-status'
 import { NO_STUDENT_NUMBER } from '@/lib/finance/grid/student-name'
 import type { FinanceColumn, FinanceGridRow } from '@/lib/finance/grid/types'
+import { unassignedReasonExplanation } from '@/lib/finance/grid/unassigned'
 
 /**
  * One student's finance record, opened from the grid.
@@ -123,6 +125,31 @@ export function FinanceDetailDrawer({ row, intake, scheduledColumns, onClose }: 
               <dd>
                 <SessionBadge session={row.session} />
               </dd>
+              {row.batchId === null ? (
+                <>
+                  <dt className="text-zinc-500">Why unassigned</dt>
+                  <dd className="space-y-1">
+                    <UnassignedReasonBadge reason={row.unassignedReason} />
+                    <p className="text-xs text-zinc-500">
+                      {unassignedReasonExplanation(row.unassignedReason)}
+                    </p>
+                  </dd>
+                  <dt className="text-zinc-500">Source batch cell</dt>
+                  <dd>
+                    {row.sourceBatchHints.length === 0 ? (
+                      <span className="text-zinc-400">Not stated</span>
+                    ) : (
+                      <>
+                        <span className="tabular-nums">{row.sourceBatchHints.join(', ')}</span>
+                        <span className="ml-2 text-xs text-zinc-500">
+                          Tracker Master&rsquo;s Batch cell: a month and year, not a cohort. A hint for a
+                          person; nothing was placed by it.
+                        </span>
+                      </>
+                    )}
+                  </dd>
+                </>
+              ) : null}
               <dt className="text-zinc-500">Payment status</dt>
               <dd className="flex flex-wrap items-center gap-2">
                 <PaymentStatusBadge status={row.paymentStatus} />
@@ -133,7 +160,11 @@ export function FinanceDetailDrawer({ row, intake, scheduledColumns, onClose }: 
 
           <Section
             title="Historical snapshot"
-            note="Copied from the batch workbook as recorded. Never recalculated."
+            note={
+              row.batchId === null
+                ? 'No batch sheet row exists for this record. Total fee is Tracker Master’s Enrollment Total Fees where a row stated it; Total paid and Balance were never recorded and are not calculated.'
+                : 'Copied from the batch workbook as recorded. Never recalculated.'
+            }
           >
             <dl className="grid grid-cols-3 gap-3">
               <Figure label="Total fee" value={displayMoney(row.legacyTotalFee)} />

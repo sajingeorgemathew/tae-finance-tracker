@@ -120,6 +120,7 @@ export function FinanceTracker({
           columns={view.columns}
           scheduledColumns={view.scheduledColumns}
           showSession={showSession}
+          unassigned={view.unassigned}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
           onOpenDetails={openDetails}

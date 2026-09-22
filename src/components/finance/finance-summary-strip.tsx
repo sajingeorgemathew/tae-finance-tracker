@@ -27,6 +27,13 @@ import { cn } from '@/lib/utils'
 export function FinanceSummaryStrip({ view }: { view: FinanceGridView }) {
   const { totals, statusCounts, sessionCounts } = view
   const cohorts = sessionCounts.Morning + sessionCounts.Evening > 0
+
+  // The Unassigned view's transaction figures (RECONCILE-04A): a count of
+  // imported payments and how many records hold at least one. Real
+  // normalized data, labelled as payments, never added to the historical
+  // totals beside it.
+  const importedPayments = view.rows.reduce((sum, row) => sum + row.paymentCount, 0)
+  const recordsWithPayments = view.rows.filter((row) => row.paymentCount > 0).length
   const scope = view.unassigned
     ? 'these unassigned records'
     : view.batchConventions.length > 1
@@ -77,6 +84,17 @@ export function FinanceSummaryStrip({ view }: { view: FinanceGridView }) {
           missing={totals.balanceMissing}
           negative={totals.balance.kind === 'amount' && totals.balance.amount < 0}
         />
+
+        {view.unassigned ? (
+          <>
+            <span className="hidden h-8 w-px self-center bg-zinc-200 sm:block dark:bg-zinc-800" aria-hidden="true" />
+            <Stat
+              label="Imported payments"
+              value={String(importedPayments)}
+              note={`on ${recordsWithPayments} of ${view.rows.length} records · ${view.rows.length - recordsWithPayments} with none`}
+            />
+          </>
+        ) : null}
       </div>
 
       <div className="mt-2 space-y-0.5 border-t border-zinc-100 pt-1.5 text-[11px] text-zinc-500 dark:border-zinc-900">
@@ -86,6 +104,17 @@ export function FinanceSummaryStrip({ view }: { view: FinanceGridView }) {
           row&rsquo;s imported balance under its own batch&rsquo;s verified sign convention.
         </p>
         <p>{view.balanceConvention.note}</p>
+
+        {view.unassigned ? (
+          <p data-unassigned-note="">
+            No batch snapshot exists for these records: the import found no batch sheet row for
+            them, so there is no Total Paid, no Balance and no Actual or Installment fee
+            structure to show, and none has been calculated. Total fees above is Tracker
+            Master&rsquo;s Enrollment Total Fees where a row stated it. Their imported Tracker
+            Master payments are listed per record under Imported transactions and in Details;
+            a payments total is a transaction sum, not a balance.
+          </p>
+        ) : null}
 
         {/*
           Structure is stated once, here, rather than marked on every cell. A
