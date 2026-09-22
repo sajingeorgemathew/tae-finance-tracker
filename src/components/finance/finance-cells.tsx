@@ -1,9 +1,15 @@
 'use client'
 
+import type { Session } from '@/lib/finance/grid/intake'
 import { displayMoney, type MoneyCell } from '@/lib/finance/grid/money'
 import {
+  paymentStatusExplanation,
+  paymentStatusLabel,
+  type PaymentStatus,
+} from '@/lib/finance/grid/payment-status'
+import {
   legacyReceiptExplanation,
-  legacyReceiptLabel,
+  type LegacyReceiptStatus,
   type LegacyReceiptSummary,
 } from '@/lib/finance/grid/receipt-status'
 import type { LegacyFlag } from '@/lib/finance/grid/types'
@@ -12,10 +18,25 @@ import { cn } from '@/lib/utils'
 /**
  * The small, shared pieces of the finance grid.
  *
- * Kept together because the same three decisions recur in the grid, the drawer
- * and the summary strip, and they are decisions rather than styling: what a
- * blank looks like, how a legacy inconsistency is signalled, and how a receipt
- * status is worded so it never reads as a statement about the student.
+ * Kept together because the same decisions recur in the grid, the drawer and
+ * the summary strip, and they are decisions rather than styling: what a blank
+ * looks like, how a legacy inconsistency is signalled, how a payment status is
+ * coloured so it can be read without the colour, and how a receipt status is
+ * worded so it never reads as a statement about the student.
+ *
+ * ## The status colour system (FINANCE-GRID-03C)
+ *
+ * One restrained palette, used the same way everywhere:
+ *
+ *   Outstanding  amber    something is owed — worth a look
+ *   Settled      emerald  nothing is owed
+ *   Credit       sky      paid more than the recorded fee
+ *   Unknown      zinc     no reliable figure; not a problem with the student
+ *   Legacy       amber outline, tiny — historical data needs reading with care
+ *
+ * Every status also carries a glyph and its word, so the meaning survives
+ * greyscale, colour-blindness and a printout. Rows are never coloured as a
+ * whole: the figures stay in plain ink.
  */
 
 /**
@@ -26,7 +47,16 @@ import { cn } from '@/lib/utils'
  * rendered muted rather than absent, so an empty cell is visibly empty rather
  * than looking like a rendering failure.
  */
-export function Money({ cell, className }: { cell: MoneyCell; className?: string }) {
+export function Money({
+  cell,
+  className,
+  emphasis = false,
+}: {
+  cell: MoneyCell
+  className?: string
+  /** For the Balance column: a little heavier, so it can be found at a glance. */
+  emphasis?: boolean
+}) {
   const negative = cell.kind === 'amount' && cell.amount < 0
 
   return (
@@ -38,6 +68,7 @@ export function Money({ cell, className }: { cell: MoneyCell; className?: string
         // being read as a number that happens to be spelled oddly.
         (cell.kind === 'text' || cell.kind === 'error') && 'text-left text-zinc-500 italic',
         negative && 'text-red-700 dark:text-red-400',
+        emphasis && cell.kind === 'amount' && 'font-medium',
         className,
       )}
       title={cell.kind === 'error' ? 'The workbook itself holds an error in this cell.' : undefined}
@@ -84,34 +115,138 @@ export function LegacyBadge({ flags }: { flags: readonly LegacyFlag[] }) {
   )
 }
 
+/** Glyph per status: a shape, so the meaning does not rest on the colour. */
+const STATUS_GLYPH: Record<PaymentStatus, string> = {
+  outstanding: '!',
+  settled: '✓',
+  credit: '+',
+  unknown: '?',
+}
+
+const STATUS_TONE: Record<PaymentStatus, string> = {
+  outstanding:
+    'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/40 dark:text-amber-200',
+  settled:
+    'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800/70 dark:bg-emerald-950/40 dark:text-emerald-200',
+  credit:
+    'border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-800/70 dark:bg-sky-950/40 dark:text-sky-200',
+  unknown:
+    'border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400',
+}
+
+const STATUS_DOT: Record<PaymentStatus, string> = {
+  outstanding: 'bg-amber-500',
+  settled: 'bg-emerald-500',
+  credit: 'bg-sky-500',
+  unknown: 'bg-zinc-400',
+}
+
 /**
- * The historical receipt status.
+ * The Payment Status pill.
  *
- * Every variant says "Legacy", because the `receipts` table is empty and
- * nothing here describes a receipt this system issued. "Unknown" is styled the
- * same as the rest on purpose: it is an absence of information, not a problem
- * with the student.
+ * Compact, one word, glyph first. Its tooltip names the imported balance as
+ * the source, so it reads as a translation of the figure beside it and not as
+ * a verdict this system reached on its own.
+ */
+export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
+  const explanation = paymentStatusExplanation(status)
+  return (
+    <span
+      title={explanation}
+      aria-label={`${paymentStatusLabel(status)}. ${explanation}`}
+      data-status={status}
+      className={cn(
+        'inline-flex cursor-help items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap',
+        STATUS_TONE[status],
+      )}
+    >
+      <span aria-hidden="true" className="w-2 text-center text-[10px]">
+        {STATUS_GLYPH[status]}
+      </span>
+      {paymentStatusLabel(status)}
+    </span>
+  )
+}
+
+/** A coloured dot for the summary strip's counts. Always beside its word. */
+export function StatusDot({ status }: { status: PaymentStatus }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn('inline-block size-2 shrink-0 rounded-full', STATUS_DOT[status])}
+    />
+  )
+}
+
+/**
+ * The Session column.
+ *
+ * Neutral text in a faint outline: it is a fact about which table the row
+ * came from, not a status, and it must not compete with the status pill
+ * beside it. A row with no session (ECEA, unassigned) shows a muted dash.
+ */
+export function SessionBadge({ session }: { session: Session | null }) {
+  if (session === null) {
+    return (
+      <span className="text-zinc-300 dark:text-zinc-700" aria-label="No session">
+        —
+      </span>
+    )
+  }
+  return (
+    <span
+      data-session={session}
+      className="inline-flex items-center rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[11px] leading-4 whitespace-nowrap text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+    >
+      {session}
+    </span>
+  )
+}
+
+const RECEIPT_LABEL: Record<LegacyReceiptStatus, string> = {
+  sent: 'Sent',
+  mixed: 'Mixed',
+  not_sent: 'Not sent',
+  unknown: 'Unknown',
+}
+
+const RECEIPT_TONE: Record<LegacyReceiptStatus, string> = {
+  sent: 'text-emerald-800 dark:text-emerald-300',
+  mixed: 'text-amber-800 dark:text-amber-300',
+  not_sent: 'text-zinc-700 dark:text-zinc-300',
+  unknown: 'text-zinc-400 dark:text-zinc-500',
+}
+
+/**
+ * The historical receipt status, compactly.
+ *
+ * One word, with a small "legacy" mark and a tooltip that opens "Historical
+ * workbook status", because the `receipts` table is empty and nothing here
+ * describes a receipt this system issued. It says nothing about whether a
+ * receipt PDF exists, and a legacy "Sent" will not block the receipt workflow
+ * from issuing a real one later. "Unknown" is an absence of information, not
+ * a problem with the student.
  */
 export function ReceiptBadge({ summary }: { summary: LegacyReceiptSummary }) {
-  const tone = {
-    sent: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
-    mixed: 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
-    not_sent: 'border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300',
-    unknown: 'border-zinc-200 bg-white text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-500',
-  }[summary.status]
-
-  const explanation = legacyReceiptExplanation(summary)
+  const explanation = `Historical workbook status. ${legacyReceiptExplanation(summary)} No receipt has been issued by this system.`
 
   return (
     <span
       title={explanation}
-      aria-label={explanation}
+      aria-label={`Legacy receipt: ${RECEIPT_LABEL[summary.status]}. ${explanation}`}
+      data-receipt={summary.status}
       className={cn(
-        'inline-flex cursor-help items-center rounded border px-1.5 py-0.5 text-[11px] leading-4 whitespace-nowrap',
-        tone,
+        'inline-flex cursor-help items-baseline gap-1 text-[12px] whitespace-nowrap',
+        RECEIPT_TONE[summary.status],
       )}
     >
-      {legacyReceiptLabel(summary.status).replace('Legacy receipt: ', '')}
+      {RECEIPT_LABEL[summary.status]}
+      <span
+        aria-hidden="true"
+        className="rounded border border-zinc-200 px-0.5 text-[9px] leading-3 tracking-wide text-zinc-400 uppercase dark:border-zinc-700 dark:text-zinc-500"
+      >
+        legacy
+      </span>
     </span>
   )
 }
@@ -120,15 +255,16 @@ export function ReceiptBadge({ summary }: { summary: LegacyReceiptSummary }) {
  * The reminder column.
  *
  * There are no `reminder_deliveries` rows in the system. This states that fact
- * neutrally: nothing here is overdue, because nothing has been attempted.
+ * neutrally: nothing here is overdue, because nothing has been attempted and
+ * no due-date rule exists yet. The wording is "Never sent", not "needed".
  */
 export function ReminderCell() {
   return (
     <span
-      className="text-zinc-400 dark:text-zinc-600"
-      title="No reminders have been sent from this system. Reminder sending arrives in a later ticket."
+      className="text-[12px] whitespace-nowrap text-zinc-400 dark:text-zinc-600"
+      title="No reminder has been sent from this system. Reminder sending arrives in a later workflow; nothing is claimed to be overdue."
     >
-      No reminders sent
+      Never sent
     </span>
   )
 }

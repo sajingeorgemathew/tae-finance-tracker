@@ -12,10 +12,18 @@
  * That is a privacy boundary as much as a tidiness one — the raw JSON carries
  * per-row provenance that staff have no reason to read and that should not sit
  * in a page's serialised props.
+ *
+ * Since FINANCE-GRID-03C the unit a staff member selects is an *intake* — a
+ * UI-level grouping of a Morning and an Evening batch (`intake.ts`). The rows
+ * of a combined intake still carry the real `batchId` they belong to, because
+ * the batches are still two real database entities and every future write
+ * workflow will need to know which one a row is in.
  */
 
 import type { BalanceConventionResult, BalanceState } from './balance.ts'
+import type { FinanceIntake, IntakeBatch, Session } from './intake.ts'
 import type { MoneyCell } from './money.ts'
+import type { PaymentStatus, PaymentStatusCounts } from './payment-status.ts'
 import type { LegacyReceiptStatus, LegacyReceiptSummary } from './receipt-status.ts'
 
 /** A program, as the selector shows it. */
@@ -25,17 +33,8 @@ export interface ProgramOption {
   shortCode: string
 }
 
-/** A batch, as the selector shows it. */
-export interface BatchOption {
-  id: string
-  programId: string
-  programShortCode: string
-  name: string
-  /** Null for the six batches whose title never stated a full date. */
-  startDate: string | null
-  /** Students with a finance record in this batch. */
-  studentCount: number
-}
+/** A batch, as the loader reads it and the intake selector groups it. */
+export type BatchOption = IntakeBatch
 
 /** The two finance groups of the grid, as `batch_finance_columns.section` names them. */
 export type FinanceColumnSection = 'actual' | 'installment'
@@ -94,6 +93,20 @@ export interface FinanceColumn {
    * when it was rebuilt from row data because no manifest row described it.
    */
   origin: 'manifest' | 'derived'
+  /**
+   * In a combined intake, which sessions' batches have this column. A row
+   * from a batch that lacks it renders blank there — the workbook had no such
+   * cell for that student, and "no cell" is not `$0.00`. Empty for a
+   * single-batch or unsessioned view.
+   */
+  sessions: Session[]
+  /**
+   * In a combined intake, the verbatim headings the *other* cohort's table
+   * gives the same source position — "Marc" beside "Mar". Both columns are
+   * kept, unrenamed, and this is what lets the heading say why two similar
+   * columns sit side by side. Empty for every other column.
+   */
+  conflictingHeadings: string[]
 }
 
 /**
@@ -137,7 +150,11 @@ export interface FinanceGridRow {
   studentNumber: string | null
   studentName: string
   programShortCode: string
+  /** The real batch this record belongs to. Null only for the unassigned records. */
+  batchId: string | null
   batchName: string | null
+  /** The cohort the underlying batch's name states. Null for ECEA and unassigned. */
+  session: Session | null
 
   /** Snapshot fields, exactly as imported. Never recomputed. */
   legacyTotalFee: MoneyCell
@@ -159,10 +176,16 @@ export interface FinanceGridRow {
   receiptSummary: LegacyReceiptSummary
 
   balanceState: BalanceState
+  /**
+   * The operational status the badge shows and the quick filter reads. Derived
+   * once, from `legacyBalance` under the batch's verified convention — see
+   * `payment-status.ts`. Never from payments, never from `fee − paid`.
+   */
+  paymentStatus: PaymentStatus
   legacyFlags: LegacyFlag[]
 }
 
-/** Batch-level historical totals, summed only from this batch's snapshots. */
+/** Intake-level historical totals, summed only from the underlying batches' snapshots. */
 export interface SummaryTotals {
   students: number
   totalFees: MoneyCell
@@ -174,13 +197,31 @@ export interface SummaryTotals {
   balanceMissing: number
 }
 
+/**
+ * One underlying batch's balance convention, as GRID-03 verifies it.
+ *
+ * A combined intake carries one of these per real batch, because a sheet's
+ * convention is verified per table and one table's result says nothing about
+ * the other's.
+ */
+export interface BatchConventionSummary {
+  batchId: string
+  batchName: string
+  session: Session | null
+  students: number
+  result: BalanceConventionResult
+}
+
 /** Everything one render of `/finance` needs. */
 export interface FinanceGridView {
   programs: ProgramOption[]
+  /** The selected program's intakes, most recent first. */
+  intakes: FinanceIntake[]
+  /** The selected program's batches — the real rows the intakes are built over. */
   batches: BatchOption[]
   selectedProgram: ProgramOption | null
-  selectedBatch: BatchOption | null
-  /** True when the view is the deliberately unassigned records, not a batch. */
+  selectedIntake: FinanceIntake | null
+  /** True when the view is the deliberately unassigned records, not an intake. */
   unassigned: boolean
   /**
    * Finance records in the selected program that the import left with no batch.
@@ -191,8 +232,14 @@ export interface FinanceGridView {
    * alternative is 22 records that exist and can never be reached.
    */
   unassignedCount: number
-  /** How the default batch was reached, shown to staff and logged. */
-  batchSelectionNote: string
+  /** How the default intake was reached, shown to staff and logged. */
+  selectionNote: string
+  /**
+   * Set when the request used an old `?batch=<uuid>` link. The page redirects
+   * to the intake that now shows that batch, narrowed to its session, so the
+   * old link lands on exactly the rows it used to.
+   */
+  legacyBatchRedirect: { intakeKey: string; session: Session | null } | null
 
   /** The ACTUAL group, in display order. Only grid-visible columns. */
   columns: FinanceColumn[]
@@ -200,14 +247,19 @@ export interface FinanceGridView {
   scheduledColumns: FinanceColumn[]
   layoutSource: LayoutSource
   /**
-   * Columns the layout lists that no student in this batch has a value in.
+   * Columns the layout lists that no student in this view has a value in.
    * They are shown blank — the workbook showed them blank — and this count is
    * what lets the summary strip say so, once, instead of a marker per cell.
    */
   blankStructuralColumns: number
   rows: FinanceGridRow[]
   totals: SummaryTotals
+  /** The intake-level reading of the conventions below. */
   balanceConvention: BalanceConventionResult
+  /** One entry per underlying batch. */
+  batchConventions: BatchConventionSummary[]
+  statusCounts: PaymentStatusCounts
+  sessionCounts: Record<Session, number>
 
   /** True when a query hit its row cap and the view may be incomplete. */
   truncated: boolean

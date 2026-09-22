@@ -23,15 +23,18 @@ in a Client Component and in a test. Only `grid/load.ts` queries.
 
 | Module | Contents |
 | --- | --- |
-| `load.ts` | The only module here that queries. Seven bounded requests per render — one of them the selected batch's column manifest; no query per student. |
-| `view-model.ts` | Builds the grid from plain row shapes. Pure, and the single place the historical-vs-normalized rules live. Column *structure* comes from the manifest; cell *values* from the rows. |
+| `load.ts` | The only module here that queries. Seven bounded requests per render for any intake (six for Unassigned) — records and manifests for every underlying batch in one `in (...)` each; no query per batch or per student. Maps old `?batch=` links to their intake. |
+| `intake.ts` | Groups a Morning and an Evening batch into one intake on their shared `legacy_sheet_name` — deterministic, never a name match. Labels, keys, ordering, default and stale-link resolution. See `docs/FINANCE-GRID-03C-USABILITY.md`. |
+| `intake-grid.ts` | Places the underlying batches' grids side by side: unions the manifests in source order, re-keys cells, leaves a cell blank where a row's own table had no such column, sums snapshots once, and reports per-batch conventions and status counts. |
+| `view-model.ts` | Builds one batch's grid from plain row shapes. Pure, and the single place the historical-vs-normalized rules live. Column *structure* comes from the manifest; cell *values* from the rows. Rows carry their real `batchId`, `session` and `paymentStatus`. |
+| `payment-status.ts` | Outstanding / Settled / Credit / Unknown, derived once from the imported balance under the batch's verified sign convention. Never from payments, `fee − paid` or Tracker Master's Balance Fees. |
+| `selection.ts` | Row selection keyed on `financeRecordId`; select-all acts on the visible rows only. Pure. |
 | `manifest.ts` | Resolves `batch_finance_columns` rows into columns: label from the verbatim heading, role and kind as metadata, hidden columns kept for accounting and dropped before the browser. See `docs/FINANCE-COLUMN-MANIFEST-03A.md`. |
 | `legacy-cells.ts` | Reads a record's preserved `legacy_raw_json` cells by column letter, and derives columns from row data where a batch has no manifest. |
 | `money.ts` | `MoneyCell` and CAD formatting. A blank is never `$0.00`. |
 | `balance.ts` | Verifies a batch's balance sign convention before any balance filter is offered. |
 | `receipt-status.ts` | Historical receipt status from the workbook's own `Receipt Sent` values. |
-| `select-batch.ts` | Batch ordering and the documented default-batch rule. |
-| `filters.ts` | Display-only search and quick filters. Pure, client-safe. |
+| `filters.ts` | Display-only session, Payment Status, legacy receipt and search filters, and the mapping of GRID-03 `?filter=` values. Pure, client-safe. |
 | `student-name.ts` | The one name-resolution chain, re-exported by `students.ts`. |
 | `types.ts` | The view model — the only finance shape a browser ever sees. |
 

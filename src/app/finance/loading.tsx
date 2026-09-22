@@ -1,7 +1,7 @@
 import { AppShell } from '@/components/ui/app-shell'
 
 /**
- * Shown while a batch loads.
+ * Shown while an intake loads.
  *
  * Deliberately a skeleton of the real layout rather than a spinner: switching
  * batch is the most common action on this screen, and keeping the filter bar,
@@ -16,7 +16,7 @@ export default function Loading() {
     <AppShell wide>
       <div className="flex flex-wrap items-baseline gap-x-4">
         <h1 className="text-xl font-semibold tracking-tight">Finance Tracker</h1>
-        <p className="text-sm text-zinc-500">Loading historical batch figures…</p>
+        <p className="text-sm text-zinc-500">Loading historical intake figures…</p>
       </div>
 
       <div className="mt-6 animate-pulse space-y-4" aria-hidden="true">

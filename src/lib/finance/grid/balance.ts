@@ -42,7 +42,11 @@ export interface BalanceConventionResult {
   checked: number
   /** Of those, how many disagreed. */
   disagreeing: number
-  /** Whether the Balance Due / Settled filters may be offered. */
+  /**
+   * Whether the convention is verified, so a row's sign can be read as a
+   * Payment Status. The quick filters are always offered (Unknown is a real
+   * answer); this now only feeds the summary strip's wording.
+   */
   filterable: boolean
   /** Staff-facing sentence. Never blames a value for being wrong. */
   note: string
@@ -85,7 +89,7 @@ export function resolveBalanceConvention(
       note:
         'No student in this batch records a total fee, a total paid and a balance together, ' +
         'so which direction means "still owing" cannot be established from the batch itself. ' +
-        'Balance filters are unavailable here.',
+        'Every row here shows Payment Status Unknown; nothing has been calculated to fill it in.',
     }
   }
 
@@ -98,7 +102,7 @@ export function resolveBalanceConvention(
       note:
         `${disagreeing} of ${checked} students in this batch record a balance that does not ` +
         'follow the same arithmetic as the rest, so the historical figures are shown as recorded ' +
-        'and balance filters are unavailable here.',
+        'and every row here shows Payment Status Unknown.',
     }
   }
 

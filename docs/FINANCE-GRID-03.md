@@ -12,6 +12,13 @@ This document contains no student names, no student numbers, no amounts
 attributable to a person, and no remarks. Column headings, batch names and
 aggregate rules only.
 
+> **Superseded in part by [FINANCE-GRID-03C](FINANCE-GRID-03C-USABILITY.md).**
+> The batch selector (§4), the quick filters (§2 step 5), the column groups
+> (§5), the URL parameters (§13) and the selection helper (§12) were replaced
+> by intake grouping, Payment Status, the operational column layout and
+> `?intake=` state. The data rules — §6–§10, §14–§16 — are unchanged and still
+> govern each underlying batch.
+
 ---
 
 ## 1. Purpose

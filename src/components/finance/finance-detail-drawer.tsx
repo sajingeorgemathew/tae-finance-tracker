@@ -2,9 +2,16 @@
 
 import { useEffect, useRef } from 'react'
 
-import { LegacyBadge, Money, ReceiptBadge } from '@/components/finance/finance-cells'
-import { balanceStateLabel } from '@/lib/finance/grid/balance'
+import {
+  LegacyBadge,
+  Money,
+  PaymentStatusBadge,
+  ReceiptBadge,
+  SessionBadge,
+} from '@/components/finance/finance-cells'
+import type { FinanceIntake } from '@/lib/finance/grid/intake'
 import { displayMoney } from '@/lib/finance/grid/money'
+import { paymentStatusExplanation } from '@/lib/finance/grid/payment-status'
 import { legacyReceiptExplanation } from '@/lib/finance/grid/receipt-status'
 import { NO_STUDENT_NUMBER } from '@/lib/finance/grid/student-name'
 import type { FinanceColumn, FinanceGridRow } from '@/lib/finance/grid/types'
@@ -23,17 +30,22 @@ import type { FinanceColumn, FinanceGridRow } from '@/lib/finance/grid/types'
  * exactly one batch table for the program — so a snapshot showing money paid
  * with no transactions behind it is a routing outcome, not a missing payment.
  *
+ * It also names the *real* batch the record belongs to, beside the intake the
+ * grid grouped it under. Morning and Evening are still two database entities,
+ * and the write workflows to come will act on the batch, not the intake.
+ *
  * Read-only throughout. No field is editable, nothing can be voided, and no
  * receipt can be generated or sent from here.
  */
 
 export interface DetailDrawerProps {
   row: FinanceGridRow | null
+  intake: FinanceIntake | null
   scheduledColumns: readonly FinanceColumn[]
   onClose: () => void
 }
 
-export function FinanceDetailDrawer({ row, scheduledColumns, onClose }: DetailDrawerProps) {
+export function FinanceDetailDrawer({ row, intake, scheduledColumns, onClose }: DetailDrawerProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
 
   // Escape closes, and focus moves into the panel when it opens, so the drawer
@@ -99,6 +111,27 @@ export function FinanceDetailDrawer({ row, scheduledColumns, onClose }: DetailDr
 
         <div className="space-y-6 px-5 py-5">
           <Section
+            title="Where this record sits"
+            note="The intake is how the tracker groups cohorts. The batch is the real record it belongs to."
+          >
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+              <dt className="text-zinc-500">Intake</dt>
+              <dd>{intake === null || row.batchId === null ? 'Unassigned — no batch' : intake.displayName}</dd>
+              <dt className="text-zinc-500">Batch</dt>
+              <dd>{row.batchName ?? <span className="text-zinc-400">No batch</span>}</dd>
+              <dt className="text-zinc-500">Session</dt>
+              <dd>
+                <SessionBadge session={row.session} />
+              </dd>
+              <dt className="text-zinc-500">Payment status</dt>
+              <dd className="flex flex-wrap items-center gap-2">
+                <PaymentStatusBadge status={row.paymentStatus} />
+                <span className="text-xs text-zinc-500">{paymentStatusExplanation(row.paymentStatus)}</span>
+              </dd>
+            </dl>
+          </Section>
+
+          <Section
             title="Historical snapshot"
             note="Copied from the batch workbook as recorded. Never recalculated."
           >
@@ -108,7 +141,6 @@ export function FinanceDetailDrawer({ row, scheduledColumns, onClose }: DetailDr
               <Figure
                 label="Balance"
                 value={displayMoney(row.legacyBalance)}
-                caption={balanceStateLabel(row.balanceState)}
                 negative={row.legacyBalance.kind === 'amount' && row.legacyBalance.amount < 0}
               />
             </dl>
@@ -205,7 +237,10 @@ export function FinanceDetailDrawer({ row, scheduledColumns, onClose }: DetailDr
             )}
           </Section>
 
-          <Section title="Receipts" note="No receipt has been issued by this system.">
+          <Section
+            title="Receipts"
+            note="Historical workbook status only. No receipt has been issued by this system, and no receipt PDF exists for the legacy status."
+          >
             <div className="flex items-start gap-3">
               <ReceiptBadge summary={row.receiptSummary} />
               <p className="flex-1 text-zinc-600 dark:text-zinc-400">
@@ -216,7 +251,8 @@ export function FinanceDetailDrawer({ row, scheduledColumns, onClose }: DetailDr
 
           <Section title="Reminders" note="No reminder has been sent by this system.">
             <p className="text-zinc-600 dark:text-zinc-400">
-              Nothing is overdue here — no reminder has been attempted for any student yet.
+              Never sent. Nothing is overdue here — no reminder has been attempted for any
+              student, and no due-date rule exists yet.
             </p>
           </Section>
         </div>
@@ -248,12 +284,10 @@ function Section({
 function Figure({
   label,
   value,
-  caption,
   negative = false,
 }: {
   label: string
   value: string
-  caption?: string
   negative?: boolean
 }) {
   return (
@@ -268,7 +302,6 @@ function Figure({
       >
         {value}
       </dd>
-      {caption ? <p className="mt-0.5 text-[11px] text-zinc-400">{caption}</p> : null}
     </div>
   )
 }

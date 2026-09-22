@@ -216,7 +216,7 @@ by deterministic id **and** batch code. Any ambiguity or gap blocks the whole
 plan; nothing partial is written. It never writes to the database — applying
 the migration is a separate, reviewed `supabase db push`.
 
-## `finance-qa/` — FINANCE-GRID-03B
+## `finance-qa/` — FINANCE-GRID-03B / 03C
 
 ```
 npm run finance:reconcile        reconcile every batch grid against the workbook (read-only)
@@ -237,14 +237,17 @@ to `reference/`, or to anything committed.
   source for `docs/FINANCE-GRID-03-ACCEPTANCE.md`.
 * **`browser-acceptance.mts`** launches the installed Chrome headless, attaches
   over the DevTools protocol with Node's built-in WebSocket, signs in with the
-  same one-time-token session, and walks the staff workflow: selectors,
-  search, scrolling, frozen columns (a pixel comparison of the frozen region
-  before and after scrolling), selection, the drawer, URL state and history,
-  ECEA and Unassigned. Screenshots go to `.private/finance-qa/screenshots/`.
+  same one-time-token session, and walks the staff workflow: the intake
+  selector, the Session filter and Payment Status pills, search, scrolling,
+  frozen columns at 1600 / 1366 / 1180px (with a pixel comparison of the
+  frozen region before and after scrolling), selection across cohorts, the
+  drawer, URL state, history, old `?batch=` links, ECEA and Unassigned — 122
+  checks. Screenshots go to `.private/finance-qa/screenshots/`.
 * **`loader-request-count.mts`** runs the real `src/lib/finance/grid/load.ts`
   under Node (its companion `.hooks.mts` stubs `server-only` and
-  `next/headers`) and counts the REST requests per render, to show the query
-  strategy is bounded regardless of batch size.
+  `next/headers`) and counts the REST requests per render — seven for any
+  intake, single-batch or Morning + Evening, six for Unassigned — to show the
+  query strategy is bounded regardless of intake size.
 
 `hosted-session.mts` uses the service-role key for exactly two administrative
 calls — finding the active admin profile and minting a one-time magic-link
