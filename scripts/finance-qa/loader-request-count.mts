@@ -1,5 +1,5 @@
 /**
- * FINANCE-GRID-03B — counts the Supabase requests the *real* grid loader makes.
+ * FINANCE-GRID-03B / 03C — counts the Supabase requests the *real* grid loader makes.
  *
  *   node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
  *     --import ./scripts/finance-qa/loader-request-count.hooks.mts \
@@ -28,6 +28,8 @@ import { openHostedSession, sessionCookies } from './hosted-session.mts'
 interface Probe {
   label: string
   program?: string
+  intake?: string
+  /** A GRID-03 `?batch=` value, to show the legacy mapping costs no extra request. */
   batch?: string
 }
 
@@ -69,27 +71,30 @@ async function main(): Promise<number> {
 
   const { loadFinanceGrid } = await import('../../src/lib/finance/grid/load.ts')
 
-  // Batches by name, so the probes read like the ticket.
+  // Intakes by label and batches by name, so the probes read like the ticket.
   const first = await loadFinanceGrid({})
   restCalls = []
   authCalls = 0
-  const byName = new Map(first.batches.map((batch) => [batch.name, batch.id]))
+  const intakeByLabel = new Map(first.intakes.map((intake) => [intake.displayName, intake.key]))
+  const batchByName = new Map(first.batches.map((batch) => [batch.name, batch.id]))
 
   const probes: Probe[] = [
-    { label: 'default (PSW newest)' },
-    { label: '27th April 2026 - Evening (largest PSW, 26)', program: 'PSW', batch: byName.get('27th April 2026 - Evening') },
-    { label: '29th JULY, 2026 - Morning (smallest, 6)', program: 'PSW', batch: byName.get('29th JULY, 2026 - Morning') },
+    { label: 'default (PSW newest intake, Morning + Evening)' },
+    { label: '27 Apr 2026 intake (largest PSW, 15 + 26)', program: 'PSW', intake: intakeByLabel.get('27 Apr 2026') },
+    { label: '29 Jul 2026 intake (smallest, 6 + 11)', program: 'PSW', intake: intakeByLabel.get('29 Jul 2026') },
+    { label: 'December 2025 intake (undated pair)', program: 'PSW', intake: intakeByLabel.get('December 2025') },
+    { label: 'legacy ?batch= link to 29th JULY, 2026 - Morning', program: 'PSW', batch: batchByName.get('29th JULY, 2026 - Morning') },
     { label: 'ECEA ELCE 25 & 26 (50)', program: 'ECEA' },
-    { label: 'Unassigned — no batch', program: 'PSW', batch: 'unassigned' },
+    { label: 'Unassigned — no batch', program: 'PSW', intake: 'unassigned' },
   ]
 
   const results: { label: string; rows: number; restRequests: number; authRequests: number; requests: string[] }[] = []
   for (const probe of probes) {
     restCalls = []
     authCalls = 0
-    const view = await loadFinanceGrid({ program: probe.program, batch: probe.batch })
+    const view = await loadFinanceGrid({ program: probe.program, intake: probe.intake, batch: probe.batch })
     results.push({
-      label: probe.label,
+      label: `${probe.label} → ${view.unassigned ? 'unassigned' : (view.selectedIntake?.displayName ?? 'none')}${view.legacyBatchRedirect ? ` (redirects to intake=${view.legacyBatchRedirect.intakeKey}, session=${view.legacyBatchRedirect.session ?? 'all'})` : ''}; batches ${view.batchConventions.length}`,
       rows: view.rows.length,
       restRequests: restCalls.length,
       authRequests: authCalls,

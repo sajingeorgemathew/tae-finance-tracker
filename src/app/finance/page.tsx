@@ -1,10 +1,23 @@
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 
 import { FinanceTracker } from '@/components/finance/finance-tracker'
 import { AppShell } from '@/components/ui/app-shell'
 import { requireUser } from '@/lib/auth'
-import { isGridFilter, type GridFilter } from '@/lib/finance/grid/filters'
+import {
+  isReceiptFilter,
+  isSessionFilter,
+  isStatusFilter,
+  receiptFilterFromLegacy,
+  sessionFilterOf,
+  statusFilterFromLegacy,
+  type ReceiptFilter,
+  type SessionFilter,
+  type StatusFilter,
+} from '@/lib/finance/grid/filters'
+import { UNASSIGNED_INTAKE } from '@/lib/finance/grid/intake'
 import { loadFinanceGrid } from '@/lib/finance/grid/load'
+import type { FinanceGridView } from '@/lib/finance/grid/types'
 import { FinanceQueryError } from '@/lib/finance/query'
 
 export const metadata: Metadata = {
@@ -27,6 +40,18 @@ export const dynamic = 'force-dynamic'
  * `src/proxy.ts` redirects unauthenticated requests to `/login`, but that is a
  * convenience and this is the real gate.
  *
+ * URL state (FINANCE-GRID-03C):
+ *
+ *   ?program=PSW&intake=2026-07-29&session=morning&status=outstanding&receipt=sent&q=…
+ *
+ * `program` and `intake` decide which rows are loaded; `session`, `status`,
+ * `receipt` (the historical workbook receipt status) and `q` narrow them in
+ * the browser. The GRID-03 forms are still honoured:
+ * `?batch=<uuid>` is mapped to the intake holding that batch, narrowed to its
+ * session, and the address bar is moved to the new form; `?filter=` is read
+ * as the equivalent `status`, or — for `legacy_receipt_gap`, which meant
+ * "Not sent or Mixed" — as the receipt filter's compatibility value `gap`.
+ *
  * Everything on this page is read-only. No server action is defined or
  * imported, so there is no write path from here at all.
  */
@@ -39,14 +64,26 @@ export default async function FinancePage({
   const params = await searchParams
 
   const program = firstValue(params.program)
+  const intake = firstValue(params.intake)
   const batch = firstValue(params.batch)
   const search = firstValue(params.q) ?? ''
-  const filterParam = firstValue(params.filter)
-  const filter: GridFilter = isGridFilter(filterParam) ? filterParam : 'all'
 
-  let view
+  const statusParam = firstValue(params.status)
+  const status: StatusFilter = isStatusFilter(statusParam)
+    ? statusParam
+    : (statusFilterFromLegacy(firstValue(params.filter)) ?? 'all')
+
+  const sessionParam = firstValue(params.session)
+  let session: SessionFilter = isSessionFilter(sessionParam) ? sessionParam : 'all'
+
+  const receiptParam = firstValue(params.receipt)
+  const receipt: ReceiptFilter = isReceiptFilter(receiptParam)
+    ? receiptParam
+    : (receiptFilterFromLegacy(firstValue(params.filter)) ?? 'all')
+
+  let view: FinanceGridView
   try {
-    view = await loadFinanceGrid({ program, batch })
+    view = await loadFinanceGrid({ program, intake, batch })
   } catch (error) {
     // `raiseQueryError` has already logged the driver detail server-side. What
     // reaches the browser is a sentence, never a Postgres message: those name
@@ -72,6 +109,21 @@ export default async function FinancePage({
     )
   }
 
+  // An old `?batch=<uuid>` link: move the address bar to the intake form, with
+  // the session that narrows the grid to exactly the rows the old link showed.
+  // Outside the try block, because `redirect` works by throwing.
+  if (view.legacyBatchRedirect !== null && view.selectedProgram !== null) {
+    const canonical = new URLSearchParams()
+    canonical.set('program', view.selectedProgram.shortCode)
+    canonical.set('intake', view.legacyBatchRedirect.intakeKey)
+    const mappedSession = sessionFilterOf(view.legacyBatchRedirect.session)
+    if (mappedSession !== 'all') canonical.set('session', mappedSession)
+    if (status !== 'all') canonical.set('status', status)
+    if (receipt !== 'all') canonical.set('receipt', receipt)
+    if (search !== '') canonical.set('q', search)
+    redirect(`/finance?${canonical.toString()}`)
+  }
+
   if (view.programs.length === 0) {
     return (
       <AppShell userEmail={user.email} wide>
@@ -89,12 +141,31 @@ export default async function FinancePage({
     )
   }
 
+  // A session filter only means something where the intake has two cohorts.
+  if (view.unassigned || (view.selectedIntake?.availableSessions.length ?? 0) < 2) {
+    session = 'all'
+  }
+
+  // Keyed on the selection, so search, filters, ticked rows and the open
+  // drawer reset when staff move to a different intake rather than carrying
+  // a selection of record ids that are no longer on screen.
+  const trackerKey = `${view.selectedProgram?.shortCode ?? ''}:${
+    view.unassigned ? UNASSIGNED_INTAKE : (view.selectedIntake?.key ?? '')
+  }`
+
   return (
     <AppShell userEmail={user.email} wide>
-      <Header note={view.batchSelectionNote} />
+      <Header note={view.selectionNote} />
 
-      <div className="mt-6">
-        <FinanceTracker view={view} initialSearch={search} initialFilter={filter} />
+      <div className="mt-5">
+        <FinanceTracker
+          key={trackerKey}
+          view={view}
+          initialSearch={search}
+          initialStatus={status}
+          initialSession={session}
+          initialReceipt={receipt}
+        />
       </div>
     </AppShell>
   )
@@ -105,7 +176,7 @@ function Header({ note }: { note?: string }) {
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
       <h1 className="text-xl font-semibold tracking-tight">Finance Tracker</h1>
       <p className="text-sm text-zinc-500">
-        Historical batch figures, shown as the source workbook recorded them. Read-only.
+        Historical intake figures, shown as the source workbook recorded them. Read-only.
       </p>
       {note ? <p className="w-full text-xs text-zinc-400 dark:text-zinc-600">{note}</p> : null}
     </div>

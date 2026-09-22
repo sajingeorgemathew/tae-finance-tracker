@@ -100,12 +100,14 @@ describe('resolving manifest rows', () => {
     const [column] = resolveManifestColumns([row({})]).actual
     const publicColumn = toFinanceColumn(column)
     assert.deepEqual(Object.keys(publicColumn).sort(), [
+      'conflictingHeadings',
       'key',
       'label',
       'order',
       'origin',
       'role',
       'section',
+      'sessions',
       'unheaded',
       'valueKind',
     ])

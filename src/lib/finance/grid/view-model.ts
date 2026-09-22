@@ -67,6 +67,8 @@ import {
   sumMoney,
   type MoneyCell,
 } from './money.ts'
+import type { Session } from './intake.ts'
+import { paymentStatusFromBalanceState } from './payment-status.ts'
 import { summarizeLegacyReceipts } from './receipt-status.ts'
 import { resolveStudentName, type NamedStudent } from './student-name.ts'
 import type {
@@ -132,6 +134,10 @@ export interface BuildGridInput {
   manifest?: readonly RawManifestColumn[]
   programShortCode: string
   batchName: string | null
+  /** The real batch the rows belong to. Null for the unassigned view. */
+  batchId?: string | null
+  /** The cohort the batch's name states. Null for ECEA and the unassigned view. */
+  session?: Session | null
 }
 
 export interface BuiltGrid {
@@ -230,6 +236,8 @@ function derivedActualColumn(column: LegacyColumn): ResolvedColumn {
     order: column.index,
     unheaded: column.unheaded,
     origin: 'derived',
+    sessions: [],
+    conflictingHeadings: [],
     letter: column.letter,
     visible: true,
     displayEvenIfBlank: true,
@@ -246,6 +254,8 @@ function derivedScheduledColumn(column: ScheduledColumn): ResolvedColumn {
     order: column.sequence,
     unheaded: false,
     origin: 'derived',
+    sessions: [],
+    conflictingHeadings: [],
     letter: null,
     visible: true,
     displayEvenIfBlank: true,
@@ -508,6 +518,7 @@ export function buildFinanceGrid(input: BuildGridInput): BuiltGrid {
     )
 
     const disagrees = balanceDisagreesWithConvention(fee, paid, balance)
+    const balanceState = balanceStateOf(balance, balanceConvention.convention)
 
     return {
       financeRecordId: record.id,
@@ -515,7 +526,9 @@ export function buildFinanceGrid(input: BuildGridInput): BuiltGrid {
       studentNumber: student?.student_number?.trim() || null,
       studentName: student ? resolveStudentName(student) : 'Unnamed student',
       programShortCode: input.programShortCode,
+      batchId: input.batchId ?? null,
       batchName: input.batchName,
+      session: input.session ?? null,
 
       legacyTotalFee: fee,
       legacyTotalPaid: paid,
@@ -532,7 +545,11 @@ export function buildFinanceGrid(input: BuildGridInput): BuiltGrid {
       receiptStatus: receiptSummary.status,
       receiptSummary,
 
-      balanceState: balanceStateOf(balance, balanceConvention.convention),
+      balanceState,
+      // The one derivation of Payment Status: from the imported balance under
+      // this batch's verified convention. The badge and the filter both read
+      // the field; neither recomputes it.
+      paymentStatus: paymentStatusFromBalanceState(balanceState),
       legacyFlags: legacyFlagsFor({
         studentNumber: student?.student_number?.trim() || null,
         fee,

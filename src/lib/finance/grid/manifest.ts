@@ -130,6 +130,8 @@ export function resolveManifestColumns(rows: readonly RawManifestColumn[]): Reso
       order: row.display_order,
       unheaded,
       origin: 'manifest',
+      sessions: [],
+      conflictingHeadings: [],
       letter: row.source_column_letter,
       visible: row.is_grid_visible,
       displayEvenIfBlank: row.display_even_if_blank,
@@ -156,5 +158,7 @@ export function toFinanceColumn(column: ResolvedColumn): FinanceColumn {
     order: column.order,
     unheaded: column.unheaded,
     origin: column.origin,
+    sessions: column.sessions,
+    conflictingHeadings: column.conflictingHeadings,
   }
 }
