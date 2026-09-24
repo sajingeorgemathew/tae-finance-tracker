@@ -74,31 +74,55 @@ export function findWorkbookCandidates(repoRoot: string): string[] {
 }
 
 /**
+ * The sheet that identifies the finance workbook structurally.
+ *
+ * Since FINANCE-CONTACT-04B1 `reference/` also holds the contact master
+ * rosters, so "the only workbook in the folder" no longer identifies the
+ * finance source. The finance workbook is the one — and must be the only one
+ * — that carries a *Tracker Master* sheet; the rosters have no such sheet.
+ * Filenames are never consulted.
+ */
+export const FINANCE_SIGNATURE_SHEET = 'Tracker Master'
+
+/** Sheet names only: the workbook is opened from a buffer with `bookSheets`, so no cell is parsed. */
+function sheetNamesOf(absolutePath: string): string[] {
+  const workbook = XLSX.read(readFileSync(absolutePath), { type: 'buffer', bookSheets: true })
+  return workbook.SheetNames
+}
+
+/**
  * Resolves the single finance workbook.
  *
- * Throws when there is not exactly one candidate: guessing between two
- * workbooks would mean an analysis (and later an import) silently bound to the
- * wrong source file.
+ * With one candidate, that file is the workbook (as before). With several,
+ * the one whose sheets include `Tracker Master` is chosen; zero or two such
+ * files is an error, because guessing between workbooks would mean an
+ * analysis (and later an import) silently bound to the wrong source file.
  */
 export function resolveWorkbookPath(repoRoot: string): string {
   const candidates = findWorkbookCandidates(repoRoot)
 
   if (candidates.length === 0) {
     throw new WorkbookDiscoveryError(
-      `No workbook found in ${REFERENCE_DIR}/. Expected exactly one file with a workbook extension.`,
+      `No workbook found in ${REFERENCE_DIR}/. Expected a file with a workbook extension.`,
       candidates,
     )
   }
 
-  if (candidates.length > 1) {
+  if (candidates.length === 1) return path.join(repoRoot, REFERENCE_DIR, candidates[0])
+
+  const finance = candidates.filter((name) =>
+    sheetNamesOf(path.join(repoRoot, REFERENCE_DIR, name)).includes(FINANCE_SIGNATURE_SHEET),
+  )
+
+  if (finance.length !== 1) {
     throw new WorkbookDiscoveryError(
-      `Expected exactly one workbook in ${REFERENCE_DIR}/, found ${candidates.length}. ` +
-        `Refusing to guess which one is the finance workbook.`,
+      `Found ${candidates.length} workbooks in ${REFERENCE_DIR}/ and ${finance.length} of them carry a ` +
+        `"${FINANCE_SIGNATURE_SHEET}" sheet. Refusing to guess which one is the finance workbook.`,
       candidates,
     )
   }
 
-  return path.join(repoRoot, REFERENCE_DIR, candidates[0])
+  return path.join(repoRoot, REFERENCE_DIR, finance[0])
 }
 
 /**

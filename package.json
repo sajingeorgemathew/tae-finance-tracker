@@ -16,7 +16,9 @@
     "finance:manifest": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-import/generate-column-manifest.mts",
     "finance:reconcile": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-qa/reconcile-grid.mts",
     "finance:ui-acceptance": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-qa/browser-acceptance.mts",
-    "finance:unassigned-audit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-qa/unassigned-audit.mts"
+    "finance:unassigned-audit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-qa/unassigned-audit.mts",
+    "finance:contact-audit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-audit.mts",
+    "finance:contact-dry-run": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-audit.mts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

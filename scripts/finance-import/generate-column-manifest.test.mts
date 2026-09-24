@@ -43,8 +43,15 @@ function committedMigration(): string {
 /** The approved workbook, or null when it is absent or is a different file. */
 function approvedWorkbook() {
   if (!existsSync(path.join(repoRoot, 'reference'))) return null
-  if (findWorkbookCandidates(repoRoot).length !== 1) return null
-  const source = openWorkbook(repoRoot, new Date(0))
+  if (findWorkbookCandidates(repoRoot).length === 0) return null
+  // Other reference workbooks (the contact rosters) may sit beside it; the
+  // resolver picks the finance one by structure and throws if it cannot.
+  let source: ReturnType<typeof openWorkbook>
+  try {
+    source = openWorkbook(repoRoot, new Date(0))
+  } catch {
+    return null
+  }
   return source.fingerprint.sha256 === APPROVED_WORKBOOK_SHA256 ? source : null
 }
 
