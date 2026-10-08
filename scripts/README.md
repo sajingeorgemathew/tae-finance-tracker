@@ -272,3 +272,57 @@ the privacy allowlist on both committed reports:
 ```
 npm test
 ```
+
+## `finance-contact/` — FINANCE-CONTACT-04B1 / 04B2
+
+```
+npm run finance:contact-audit                      # 04B1: read-only audit of the master contact workbooks
+npm run finance:contact-apply                      # 04B2: dry run (the default) — plan + hash, no writes
+npm run finance:contact-apply -- --apply --plan-hash=<sha256>
+```
+
+Both commands stage the PSW and ECEA master workbooks from `reference/`
+through the program adapters, apply the operational scope (`scope.mts`, a
+config object), read the hosted students under the admin's own RLS-enforced
+session (`../finance-qa/hosted-session.mts`, never the service role) and
+match on the exact student number only. They share `pipeline.mts` so the
+audit and the plan can never disagree about a row.
+
+| Output | Committed? |
+| --- | --- |
+| `.private/finance-contact/contact-audit*.{json,csv,md}` | **No** — Git-ignored. Row-level audit: names, numbers, contact values. |
+| `.private/finance-contact/contact-04b2-plan.json` | **No** — the row-level apply plan and its hash. |
+| `.private/finance-contact/contact-04b2-apply-result.json` | **No** — written only by a live apply. |
+| `docs/FINANCE-CONTACT-04B1.md`, `docs/FINANCE-CONTACT-04B2.md` | Yes. Aggregates, rules and hashes only. |
+
+**The apply is opt-in twice.** The base command is a dry run. `--apply`
+without `--plan-hash` is refused, and `--apply` with a hash that is not the
+hash of the plan the *current* workbooks and hosted state produce is refused
+before any write. Each write goes through `public.apply_student_contact_fill`
+(one transaction per student: the field update and its `audit_log` row
+succeed or fail together; a field that is no longer NULL fails as
+`STALE_TARGET` and is never overwritten).
+
+The 04B2 plan generated on 2026-09-26 was superseded by FINANCE-CUTOVER-05A
+and never applied (see `docs/FINANCE-CONTACT-04B2.md`). Any future apply
+starts from a new dry run against the post-cutover data; never reuse an old
+plan hash.
+
+Layout:
+
+```
+finance-contact/
+  contact-audit.mts       04B1 entry point: audit, private row-level output, aggregate
+  contact-apply.mts       04B2 entry point: dry run / gated apply
+  pipeline.mts            staging + hosted reads both entry points share
+  apply-plan.mts          pure: candidates per hosted student, aggregate, canonical hash, RPC arguments
+  reconcile.mts           pure: the generic matching / classification engine
+  canonical.mts           ContactImportRow, the field allowlist, sensitive-heading patterns
+  normalize.mts           comparison and storage forms for numbers, emails, phones, names
+  scope.mts               the operational window (configuration)
+  sources.mts             read-only workbook discovery and fingerprints
+  table-scan.mts          generic sheet scanner (cells read only through the heading map)
+  adapters/               one adapter per program layout (psw, ecea) + registry
+  rpc-verification.sql    rolled-back verification of the apply RPC on the linked project
+  fixtures.mts, *.test.mts  invented data only
+```

@@ -34,60 +34,37 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-import { groupBatchesIntoIntakes, sessionOfBatchName, type IntakeBatch } from '../../src/lib/finance/grid/intake.ts'
-
-import { countRows, selectAll, type HostedBatch, type HostedProgram } from '../finance-qa/hosted-reads.mts'
 import { openHostedSession, type HostedSession } from '../finance-qa/hosted-session.mts'
 
-import type { AdapterParseResult, MasterContactSourceAdapter } from './adapters/adapter.mts'
-import { ADAPTERS } from './adapters/registry.mts'
-import { parseTitleDate } from './adapters/title-date.mts'
 import type { ContactImportRow, Flag, IntakeCategory, PrimaryCategory } from './canonical.mts'
 import {
+  INTEGRITY_TABLES,
+  integrityCounts,
+  isStagingStop,
+  readHosted,
+  snapshotFromReads,
+  stageWorkbooks,
+  type HostedReads,
+} from './pipeline.mts'
+import {
   classifyRows,
-  conserveSource,
-  crossCheckSubsets,
   crossCheckUnassigned,
-  findDuplicateSourceNumbers,
   findHostedDuplicateNumbers,
-  findSharedContacts,
-  findSourceConflicts,
   hostedStudentsAbsentFromMasters,
   tally,
-  type DuplicateGroup,
   type HostedAbsentFromMasters,
   type HostedDuplicateNumber,
-  type HostedIntakeLike,
   type HostedSnapshot,
-  type HostedStudentLike,
   type RowAssessment,
   type SourceConflict,
   type SourceConservation,
-  type SubsetCrossCheck,
   type UnassignedCrossCheck,
   type UnassignedRecordLike,
 } from './reconcile.mts'
-import { applyScope, DEFAULT_SCOPE_CONFIG, type ScopeConfig, type ScopeCounts } from './scope.mts'
-import { discoverContactWorkbooks, hashReferenceFile, type ContactWorkbookFingerprint, type DiscoveredWorkbook } from './sources.mts'
+import { DEFAULT_SCOPE_CONFIG, type ScopeConfig, type ScopeCounts } from './scope.mts'
+import { hashReferenceFile } from './sources.mts'
 
 const PRIVATE_DIR = path.join('.private', 'finance-contact')
-
-const ADAPTER_BY_ID = new Map<string, MasterContactSourceAdapter>(ADAPTERS.map((adapter) => [adapter.id, adapter]))
-
-/** The tables whose counts must be identical before and after. */
-const INTEGRITY_TABLES = [
-  'batches',
-  'students',
-  'student_finance_records',
-  'installments',
-  'payments',
-  'receipts',
-  'receipt_deliveries',
-  'reminder_deliveries',
-  'import_batches',
-  'import_exceptions',
-  'audit_log',
-] as const
 
 // -----------------------------------------------------------------------------
 // Arguments
@@ -120,110 +97,8 @@ function parseArgs(argv: readonly string[]): Args {
 }
 
 // -----------------------------------------------------------------------------
-// Hosted reads — authenticated, RLS, read-only
-// -----------------------------------------------------------------------------
-
-interface HostedStudentRow extends HostedStudentLike {
-  active: boolean
-}
-
-interface HostedRecordRow {
-  id: string
-  student_id: string
-  program_id: string
-  batch_id: string | null
-}
-
-interface HostedReads {
-  programs: HostedProgram[]
-  batches: HostedBatch[]
-  students: HostedStudentRow[]
-  records: HostedRecordRow[]
-}
-
-async function readHosted(session: HostedSession): Promise<HostedReads> {
-  const { client } = session
-  const programs = await selectAll<HostedProgram>(client, 'programs', 'id, name, short_code', 'short_code')
-  const batches = await selectAll<HostedBatch>(
-    client,
-    'batches',
-    'id, program_id, name, code, legacy_sheet_name, start_date, active',
-    'code',
-  )
-  const students = await selectAll<HostedStudentRow>(
-    client,
-    'students',
-    'id, student_number, first_name, middle_name, last_name, display_name, legacy_name, email, phone, active',
-    'id',
-  )
-  const records = await selectAll<HostedRecordRow>(
-    client,
-    'student_finance_records',
-    'id, student_id, program_id, batch_id',
-    'id',
-  )
-  return { programs, batches, students, records }
-}
-
-async function integrityCounts(session: HostedSession): Promise<Record<string, number>> {
-  const out: Record<string, number> = {}
-  for (const table of INTEGRITY_TABLES) out[table] = await countRows(session.client, table)
-  return out
-}
-
-/** Hosted batches grouped exactly as the grid groups them, reduced to what the engine needs. */
-function hostedIntakes(reads: HostedReads): HostedIntakeLike[] {
-  const programById = new Map(reads.programs.map((program) => [program.id, program]))
-  const studentCounts = new Map<string, number>()
-  for (const record of reads.records) {
-    if (record.batch_id === null) continue
-    studentCounts.set(record.batch_id, (studentCounts.get(record.batch_id) ?? 0) + 1)
-  }
-  const intakeBatches: IntakeBatch[] = reads.batches.map((batch) => ({
-    id: batch.id,
-    programId: batch.program_id,
-    programShortCode: programById.get(batch.program_id)?.short_code ?? 'unknown',
-    name: batch.name,
-    startDate: batch.start_date,
-    legacySheetName: batch.legacy_sheet_name,
-    session: sessionOfBatchName(batch.name),
-    studentCount: studentCounts.get(batch.id) ?? 0,
-  }))
-  return groupBatchesIntoIntakes(intakeBatches).map((intake) => {
-    const yearMonth =
-      intake.datePrecision === 'day' && intake.latestStartDate !== null
-        ? intake.latestStartDate.slice(0, 7)
-        : intake.datePrecision === 'month'
-          ? intake.key
-          : null
-    const titleMonth = parseTitleDate(intake.sourceTitle).yearMonth
-    return {
-      key: intake.key,
-      programCode: intake.programShortCode,
-      label: intake.displayName,
-      startDate: intake.latestStartDate,
-      yearMonth,
-      titleYearMonth: titleMonth !== null && titleMonth !== yearMonth ? titleMonth : null,
-      batches: intake.batches.map((batch) => ({ id: batch.id, name: batch.name, session: batch.session })),
-    }
-  })
-}
-
-// -----------------------------------------------------------------------------
 // Aggregate (no PII) and private outputs
 // -----------------------------------------------------------------------------
-
-interface WorkbookReport {
-  fingerprint: ContactWorkbookFingerprint
-  adapterId: string | null
-  recognition: { adapterId: string; recognized: boolean; reason: string }[]
-  parse: AdapterParseResult | null
-  scope: ScopeCounts | null
-  conservation: SourceConservation | null
-  duplicates: DuplicateGroup[]
-  conflicts: SourceConflict[]
-  subsetCrossCheck: SubsetCrossCheck | null
-}
 
 interface Aggregate {
   ticket: 'FINANCE-CONTACT-04B1'
@@ -583,77 +458,13 @@ async function main(): Promise<number> {
   const now = new Date()
   const args = parseArgs(process.argv.slice(2))
 
-  // --- 1. Sources ------------------------------------------------------------
-  const discovered: DiscoveredWorkbook[] = discoverContactWorkbooks(repoRoot)
-  console.log(`reference/: ${discovered.length} workbook(s)`)
-  for (const item of discovered) {
-    console.log(
-      `  ${item.fingerprint.fileName} · ${item.fingerprint.sizeBytes} bytes · sha256 ${item.fingerprint.sha256} · ` +
-        `${item.fingerprint.sheetNames.length} sheets · adapter: ${item.identification.adapter?.id ?? 'none'}`,
-    )
-    if (item.identification.conflict) {
-      console.error(`STOP: ${item.identification.conflict.join(' and ')} both claim ${item.fingerprint.fileName}`)
-      return 2
-    }
+  // --- 1–4. Sources: discover, parse, scope, normalize (shared pipeline) ------
+  const staging = stageWorkbooks(repoRoot, args.config, (line) => console.log(line))
+  if (isStagingStop(staging)) {
+    console.error(staging.message)
+    return staging.code
   }
-  const masters = discovered.filter((item) => item.identification.adapter !== null)
-  if (masters.length === 0) {
-    console.error('STOP: no contact master workbook was recognized under reference/')
-    return 2
-  }
-  const claimedPrograms = masters.map((item) => (item.identification.adapter as MasterContactSourceAdapter).programCode)
-  if (new Set(claimedPrograms).size !== claimedPrograms.length) {
-    console.error('STOP: two workbooks were recognized for the same program; refusing to guess which is current')
-    return 2
-  }
-
-  // --- 2–4. Parse, scope, normalize (normalization happens in the adapters) ---
-  const reports: WorkbookReport[] = []
-  for (const item of discovered) {
-    const adapter = item.identification.adapter
-    const recognition = item.identification.verdicts.map((verdict) => ({
-      adapterId: verdict.adapterId,
-      recognized: verdict.recognition.recognized,
-      reason: verdict.recognition.reason,
-    }))
-    if (adapter === null) {
-      reports.push({ fingerprint: item.fingerprint, adapterId: null, recognition, parse: null, scope: null, conservation: null, duplicates: [], conflicts: [], subsetCrossCheck: null })
-      continue
-    }
-    const parse = adapter.parse(item.workbook, item.fingerprint.fileName)
-    const scope = applyScope(parse.rows, adapter.scopeDateField, args.config)
-    applyScope(parse.crossCheckRows, adapter.scopeDateField, args.config)
-    const conservation = conserveSource({
-      programCode: adapter.programCode,
-      workbookName: item.fingerprint.fileName,
-      sheets: parse.sheets,
-      rows: parse.rows,
-      crossCheckRows: parse.crossCheckRows,
-    })
-    const duplicates = findDuplicateSourceNumbers(parse.rows)
-    const subsetCrossCheck =
-      parse.crossCheckRows.length > 0 ? crossCheckSubsets(parse.rows, parse.crossCheckRows, adapter.programCode) : null
-    const conflicts = [...findSourceConflicts(parse.rows), ...(subsetCrossCheck?.conflicts ?? [])]
-    reports.push({ fingerprint: item.fingerprint, adapterId: adapter.id, recognition, parse, scope: scope.counts, conservation, duplicates, conflicts, subsetCrossCheck })
-    console.log(
-      `parsed ${adapter.programCode}: ${parse.rows.length} staged rows, ${parse.crossCheckRows.length} cross-check rows; ` +
-        `scope ${JSON.stringify(scope.counts)}; conservation ${conservation.conserved ? 'ok' : 'BROKEN'}`,
-    )
-  }
-
-  const allRows: ContactImportRow[] = reports.flatMap((report) => report.parse?.rows ?? [])
-  const dateUnknownRowIds = new Set<string>()
-  for (const report of reports) {
-    if (!report.parse) continue
-    const adapter = ADAPTER_BY_ID.get(report.adapterId as string) as MasterContactSourceAdapter
-    for (const row of report.parse.rows) {
-      const field = adapter.scopeDateField
-      const fallback = field === 'intakeDate' ? 'sourceStartDate' : 'intakeDate'
-      if (row[field] === null && row[fallback] === null) dateUnknownRowIds.add(row.stagedRowId)
-    }
-  }
-  const duplicates = reports.flatMap((report) => report.duplicates)
-  const shared = findSharedContacts(allRows)
+  const { discovered, reports, allRows, dateUnknownRowIds, duplicates, shared } = staging
 
   // --- 5. Hosted -------------------------------------------------------------
   let session: HostedSession | null = null
@@ -666,13 +477,7 @@ async function main(): Promise<number> {
     countsBefore = await integrityCounts(session)
     console.log(`before:   ${JSON.stringify(countsBefore)}`)
     reads = await readHosted(session)
-    hosted = {
-      students: reads.students,
-      programs: reads.programs,
-      batches: reads.batches,
-      records: reads.records,
-      intakes: hostedIntakes(reads),
-    }
+    hosted = snapshotFromReads(reads)
   }
 
   // --- 6–9. Classify, cross-check ---------------------------------------------
