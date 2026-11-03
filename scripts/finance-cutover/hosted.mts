@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
+import { cliErrorOf, parseCliRows, stderrProblems } from './cli-output.mts'
 import { BACKUP_TABLES, PRIVATE_DIR, type BackupTable } from './config.mts'
 
 /** Tables whose rows carry `updated_at` as well as `created_at`. */
@@ -122,21 +123,22 @@ function runCli(repoRoot: string, file: string, access: CliAccess): { status: nu
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
 }
 
-function parseCliRows(stdout: string): Record<string, unknown>[] {
-  const start = stdout.indexOf('{')
-  if (start === -1) throw new Error('linked query printed no JSON')
-  const parsed = JSON.parse(stdout.slice(start)) as { rows?: Record<string, unknown>[] }
-  return parsed.rows ?? []
-}
-
 /** Runs one read-only SELECT through the linked CLI and returns its rows. */
 export function runLinkedQuery(repoRoot: string, name: string, sql: string): LinkedQueryResult {
   const file = writeSqlFile(repoRoot, name, sql)
   const { status, stdout, stderr } = runCli(repoRoot, file, 'read-only')
   if (status !== 0) {
-    throw new Error(`linked query ${name} failed (exit ${status}): ${(stderr || stdout).slice(0, 2000)}`)
+    // The CLI reports SQL errors on stdout as a `_tag: "Error"` document; stderr is status lines.
+    const reason = cliErrorOf(stdout) ?? `${stdout}\n${stderr}`.trim()
+    throw new Error(`linked query ${name} failed (exit ${status}): ${reason.slice(0, 2000)}`)
   }
-  return { rows: parseCliRows(stdout) }
+  const problems = stderrProblems(stderr)
+  if (problems.length > 0) throw new Error(`linked query ${name} reported errors on stderr: ${problems.join(' | ').slice(0, 2000)}`)
+  try {
+    return { rows: parseCliRows(stdout) }
+  } catch (error) {
+    throw new Error(`linked query ${name}: ${(error as Error).message}`)
+  }
 }
 
 /** The live fingerprint of every backup table. Read-only. */
