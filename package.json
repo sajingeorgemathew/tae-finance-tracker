@@ -19,7 +19,9 @@
     "finance:unassigned-audit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-qa/unassigned-audit.mts",
     "finance:contact-audit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-audit.mts",
     "finance:contact-dry-run": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-audit.mts",
-    "finance:contact-apply": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-apply.mts"
+    "finance:contact-apply": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-apply.mts",
+    "finance:cutover": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-cutover/cutover.mts",
+    "finance:cutover:launch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-cutover/launch.mts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

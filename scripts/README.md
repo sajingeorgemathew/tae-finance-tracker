@@ -326,3 +326,63 @@ finance-contact/
   rpc-verification.sql    rolled-back verification of the apply RPC on the linked project
   fixtures.mts, *.test.mts  invented data only
 ```
+
+## `finance-cutover/` — FINANCE-CUTOVER-05A
+
+```
+npm run finance:cutover                                   # dry run (the default): backup, target, plan, hashes; no writes
+npm run finance:cutover -- --probe-sql                    # + prove the apply statement parses on hosted (raises before any DML)
+npm run finance:cutover -- --verify-restore               # + verify every restore chunk on pg_temp copies (always rolled back)
+npm run finance:cutover -- --as-of=YYYY-MM-DD             # reminder readiness as of a date
+npm run finance:cutover -- --refresh-backup               # re-capture the private backup even if hosted is unchanged
+npm run finance:cutover -- --apply --plan-hash=<sha256>   # the destructive cutover — only after review
+```
+
+Replaces the historical operational dataset with the launch cohorts: PSW
+March 2026 preserved from hosted by id; PSW April/June/August/September 2026,
+ECEA and French rebuilt from the replacement workbook. Hosted access is
+linked SQL only (`npx supabase db query --linked`, sequential): the state
+fingerprint, the backup rows and the apply all go through it, so the project's
+REST host is never needed.
+
+| Output | Committed? |
+| --- | --- |
+| `.private/finance-cutover-05a/hosted-backup.json` + `-manifest.json` | **No** — every hosted finance row, ids and timestamps; proved against the live fingerprint. |
+| `.private/finance-cutover-05a/target-dataset.json`, `cutover-plan.json` | **No** — row-level target and plan, with their hashes. |
+| `.private/finance-cutover-05a/cutover-analysis.json` | **No** — per-student contact, reminder and receipt assessments. |
+| `.private/finance-cutover-05a/cutover-apply.sql` | **No** — the single-transaction apply statement (holds row data). |
+| `.private/finance-cutover-05a/restore-manifest.json` + `restore/` | **No** — the staged restore of the pre-cutover dataset (stage files, one swap, cleanup) and its pg_temp verification files. |
+| `.private/finance-cutover-05a/balance-population.json` | **No** — the frozen reminder-candidate population for 05B. |
+| `.private/finance-cutover-05a/dated-payment-reconciliation.json` | **No** — each dated hosted payment of a target student the cutover removes, with its class and evidence. |
+| `.private/finance-cutover-05a/cutover-aggregate.md` | **No** — counts only, safe to paste into a review. |
+| `docs/FINANCE-CUTOVER-05A.md` | Yes. Aggregates, rules and hashes only. |
+
+**The apply is opt-in twice and bound to what was reviewed.** It refuses
+unless `--apply` and the exact plan hash are given, the workbook is the
+approved one, the backup verifies and is the planned backup, the live
+fingerprint (count, id set and full-row md5 per table) equals the plan's
+pre-state and the ticket baseline, and the plan has no blocker. The statement
+re-checks the pre-state inside its own transaction and rolls back on any
+count or post-state mismatch.
+
+Layout:
+
+```
+finance-cutover/
+  cutover.mts             entry point: dry run / probe / gated apply
+  config.mts              approved hashes, baseline, launch cohorts, French program row
+  parse.mts               workbook recognition and row classification (reuses the importer's table builder)
+  target.mts              pure: the target dataset (March retained by id, workbook cohorts rebuilt)
+  plan.mts                pure: delete set, counts, FK invariants, collection_mode updates, plan hash
+  dated-payments.mts      pure: reconciling removed dated payments of target students (represented / not / prior enrollment / ambiguous)
+  sql.mts                 pure: the one-DO-block apply statement, the probe, the column check
+  restore.mts             pure: the staged restore (stage / swap / cleanup), its verification, offline checks
+  gates.mts               pure: every apply refusal
+  contacts.mts            pure: contact readiness on the exact student number
+  conservation.mts        pure: source-vs-target totals per cohort
+  readiness.mts           pure: collection modes, schedule month mapping, collection and receipt readiness
+  report.mts              the aggregate (no PII)
+  hosted.mts              linked-SQL fingerprint, backup reads, the one write path
+  backup.mts, backup-step.mts   backup serialisation, manifest, read-back proof
+  fixtures.mts, hosted-fixtures.mts, *.test.mts   invented data only
+```

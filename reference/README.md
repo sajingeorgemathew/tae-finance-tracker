@@ -5,7 +5,7 @@ from. They are inputs, not application data.
 
 | File | What it is |
 | --- | --- |
-| `finance-tracker.xlsx.xlsx` | The historical finance workbook (batches, payments, balances, receipt status). Authoritative for finance history. Identified by its `Tracker Master` sheet. |
+| `finance-tracker.xlsx.xlsx` | The replacement finance workbook for the launch cohorts (PSW April/June/August/September 2026, ECEA, French), sha256 `0d325279…2dfe`. It replaced the historical workbook at the same path (sha256 `62d53173…94b2`, identified by its `Tracker Master` sheet), which FINANCE-IMPORT-02 imported and which is now superseded. The cutover tooling identifies it structurally (cohort sheets, no Tracker Master, not a contact master) and by exact hash; see `docs/FINANCE-CUTOVER-05A.md`. |
 | `PSW MASTERCLASS LIST- 2025 - 26 (6).xlsx` | The PSW contact/roster master (one sheet per intake, Morning and Evening tables). Contact evidence only; see `docs/FINANCE-CONTACT-04B1.md`. |
 | `ELCE_MASTERCLASS_LIST_2025-26_New#.xlsx` | The ECEA contact/roster master (a master sheet plus Weekday/Weekend subset sheets). Contact evidence only. |
 | `receipt-template.pdf.pdf` | The existing receipt layout the generated PDF receipts must match. |

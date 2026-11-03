@@ -11,6 +11,7 @@ SQL migrations, applied in filename order.
 | `20260920120000_batch_finance_columns.sql` | FINANCE-COLUMN-MANIFEST-03A | `batch_finance_columns`: a batch's column layout — constraints, indexes, RLS, policies |
 | `20260920120100_batch_finance_columns_legacy_manifest.sql` | FINANCE-COLUMN-MANIFEST-03A | **Generated.** The 23 imported batches' historical layouts, 383 rows. Regenerate with `npm run finance:manifest -- --write-migration`; verify with `--check`. Layout metadata only, no student data. |
 | `20260926120000_student_contact_fill.sql` | FINANCE-CONTACT-04B2 | `public.apply_student_contact_fill(uuid, text, text, text, jsonb)`: fills a student's NULL email/phone and inserts the audit_log row in one transaction. SECURITY INVOKER, `search_path = ''`, EXECUTE for `authenticated` only; never overwrites a non-NULL value (`STALE_TARGET`). No table, column or row change. Verified by `scripts/finance-contact/rpc-verification.sql` (rolled back). |
+| `20261021120000_finance_record_collection_mode.sql` | FINANCE-CUTOVER-05A | `student_finance_records.collection_mode` (nullable text; `installment`, `legacy_balance`, `balance`, `configuration_incomplete`): a generic collection strategy per finance record. Additive; existing rows stay NULL; readable under the table's existing row policies. Applied to hosted 2026-10-21. |
 
 Authentication itself uses Supabase's built-in `auth` schema, which needs no
 migration. The foundation migration does add one trigger on `auth.users`
