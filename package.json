@@ -20,6 +20,8 @@
     "finance:contact-audit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-audit.mts",
     "finance:contact-dry-run": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-audit.mts",
     "finance:contact-apply": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/contact-apply.mts",
+    "finance:contact-launch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-contact/launch-contact.mts",
+    "finance:student-sync": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-student-sync/student-sync.mts",
     "finance:cutover": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-cutover/cutover.mts",
     "finance:cutover:launch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/finance-cutover/launch.mts"
   },

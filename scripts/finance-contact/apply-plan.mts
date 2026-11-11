@@ -54,6 +54,11 @@ export type FieldReason =
   | 'HELD_NON_NANP_PHONE'
   /** The source states nothing for this field. */
   | 'NO_SOURCE_VALUE'
+  /**
+   * 05B veto: the exact number matched, but the hosted and master names share
+   * no word — one of the two sources probably carries the wrong number.
+   */
+  | 'HELD_IDENTITY_CONFLICT'
 
 export type DeferralCategory =
   /** Exact number, no hosted student: belongs to the later roster/enrollment ticket. */
@@ -70,6 +75,7 @@ export type EvidenceFlag =
   | 'HOSTED_UNASSIGNED'
   | 'REPEATED_SOURCE_NUMBER'
   | 'STUDENT_NUMBER_NOT_DIGITS'
+  | 'IDENTITY_CONFLICT'
 
 // -----------------------------------------------------------------------------
 // Shapes
@@ -453,7 +459,7 @@ export function hasFill(candidate: ContactApplyCandidate): boolean {
 }
 
 /** Provenance stored in `audit_log.metadata`. Raw source values only for the fields being filled. */
-export function rpcArgumentsFor(candidate: ContactApplyCandidate, hash: string): RpcArguments {
+export function rpcArgumentsFor(candidate: ContactApplyCandidate, hash: string, ticket: string = TICKET): RpcArguments {
   const fields = [candidate.emailAction === 'fill' ? 'email' : null, candidate.phoneAction === 'fill' ? 'phone' : null].filter(Boolean)
   return {
     p_student_id: candidate.studentId,
@@ -461,7 +467,7 @@ export function rpcArgumentsFor(candidate: ContactApplyCandidate, hash: string):
     p_phone: candidate.phoneAction === 'fill' ? candidate.proposedPhone : null,
     p_expected_student_number: candidate.studentNumber === '' ? null : candidate.studentNumber,
     p_metadata: {
-      ticket: TICKET,
+      ticket,
       source_type: SOURCE_TYPE,
       plan_version: PLAN_VERSION,
       plan_hash: hash,
@@ -517,16 +523,17 @@ const ABORTING_CODES = ['NOT_AUTHENTICATED', 'NOT_AUTHORISED']
  * A stale target is recorded and skipped, never retried and never claimed.
  */
 export async function executeApply(
-  plan: ApplyPlan,
+  plan: Pick<ApplyPlan, 'candidates'>,
   hash: string,
   call: (args: RpcArguments) => Promise<RpcResult>,
+  ticket: string = TICKET,
 ): Promise<ApplyExecution> {
   const outcomes: CandidateOutcome[] = []
   let abortedBecause: string | null = null
 
   for (const candidate of plan.candidates) {
     if (!hasFill(candidate)) continue
-    const args = rpcArgumentsFor(candidate, hash)
+    const args = rpcArgumentsFor(candidate, hash, ticket)
     const fields = (args.p_metadata.requested_fields as ('email' | 'phone')[]) ?? []
     const result = await call(args)
     if (result.ok) {
